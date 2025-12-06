@@ -3,7 +3,7 @@ use pulldown_cmark::{Parser, Options, Event, Tag, HeadingLevel, LinkType};
 use std::{
     fs,
     path::{Path, PathBuf},
-    io::{self, Write},
+    io::{self},
     collections::HashSet,
 };
 
@@ -27,7 +27,6 @@ fn main() -> io::Result<()> {
         println!("Target directory: {}", args.target.display());
     }
 
-    // --- Target Directory Handling ---
     if args.target.exists() && args.target.is_dir() {
         if args.verbose {
             println!("Cleaning target directory contents: {}", args.target.display());
@@ -76,7 +75,7 @@ fn parse_args() -> Args {
                 .long("target")
                 .value_parser(clap::value_parser!(String))
                 .required(true)
-                .value_name("TARGET_DIR")
+                .value_name("TAsRGET_DIR")
                 .help("Specifies the target directory where files will be copied"),
         )
         .arg(
@@ -438,15 +437,29 @@ fn format_html_page(title: &str, nav_html: &str, content: &str) -> String {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{}</title>
-    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/styles.css"> 
 </head>
 <body>
-    <header>
-        {}
-    </header>
-    <main>
-        {}
-    </main>
+    <div id="page-layout"> 
+        <header>
+            <p>Generated Site Header</p>
+        </header>
+        
+        <nav>
+            {} </nav>
+        
+        <main>
+            {} </main>
+        
+        <aside>
+            <h2>Right Column</h2>
+            <p>This is the content that now appears in the right column.</p>
+        </aside>
+        
+        <footer>
+            <p>Page Footer</p>
+        </footer>
+    </div>
 </body>
 </html>"#,
         title, nav_html, content

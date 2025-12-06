@@ -1,126 +1,79 @@
-That's a great request! To achieve a technical, compact look that handles zoom well, I'll use a monospaced font, thin borders, and a grid/flex layout for efficient screen real estate management.
+/* --- 1. Base Setup and Grid Definition (MAXIMUM PRIORITY) --- */
+#page-layout {
+  /* 🛑 GUARANTEE GRID WORKS */
+  display: grid !important; 
+  
+  /* 3-Column Layout Definition */
+  grid-template-columns: 250px 1fr 250px !important;
 
-Here is a styles.css that fits your criteria:
+  /* Rows: Header (auto) | Main Content Area (1fr) | Footer (auto) */
+  grid-template-rows: auto 1fr auto !important; 
 
-CSS
+  /* Define the layout using named areas */
+  grid-template-areas: 
+    "header header header"
+    "nav main aside"
+    "footer footer footer" !important; /* Force area mapping */
 
-body { 
-    /* Compact, technical font */
-    font-family: 'Consolas', 'Monaco', 'Courier New', monospace; 
-    font-size: 12px; /* Small font size */
-    line-height: 1.4; 
-    
-    /* Layout for zoom/conserving real estate */
-    max-width: 1400px; /* Wide but constrained container */
-    margin: 0 auto; 
-    padding: 10px; 
-    display: flex; /* Enables side-by-side navigation and content */
-    background-color: #1e1e1e; /* Dark background for technical look */
-    color: #d4d4d4; /* Light text color */
+  gap: 20px !important; 
+  min-height: 100vh !important; 
+  margin: 0 auto !important;    
+  max-width: 1400px !important; 
+  
+  /* TEMPORARY: Check the border to confirm CSS is being loaded */
+  border: 4px solid blue !important; 
 }
 
-/* --- Structural Containers --- */
-header { 
-    width: 250px; /* Conserving screen real estate for nav */
-    padding-right: 15px; 
-    border-right: 1px solid #333; /* Subtle dividing line */
-    flex-shrink: 0; 
+/* --- 2. Placement and Visibility Styles --- */
+
+header {
+  grid-area: header !important;
+  background: #2c3e50 !important;
+  color: white !important;
+  padding: 20px !important;
 }
 
-main { 
-    flex-grow: 1; 
-    padding-left: 25px; 
+nav {
+  grid-area: nav !important; /* Left Column */
+  background: #ecf0f1 !important;
+  padding: 20px !important;
+  min-height: 200px !important; 
 }
 
-/* --- Typography and Content --- */
-h1, h2, h3, h4 { 
-    color: #569cd6; /* A technical blue/cyan for headings */
-    font-weight: 500; 
-    margin-top: 0.8em; 
-    margin-bottom: 0.5em;
+main {
+  grid-area: main !important; /* Center Content */
+  background: white !important;
+  padding: 20px !important;
 }
 
-h1 { 
-    font-size: 1.8em;
-    border-bottom: 1px solid #333; /* Thin separator */
-    padding-bottom: 5px; 
+aside {
+  grid-area: aside !important; /* Right Column */
+  background: #f1f1f1 !important;
+  padding: 20px !important;
+  border: 1px solid #ccc !important;
+  min-height: 200px !important; 
 }
 
-p {
-    margin-bottom: 0.5em;
+footer {
+  grid-area: footer !important;
+  background: #34495e !important;
+  color: white !important;
+  padding: 15px !important;
+  text-align: center !important;
 }
 
-/* --- Links and Navigation --- */
-a { 
-    text-decoration: none; 
-    color: #4ec9b0; /* A technical green/teal for links */
-}
+/* --- 3. Responsiveness --- */
+@media (max-width: 768px) {
+  #page-layout { 
+    grid-template-areas: 
+      "header"
+      "nav"
+      "main"
+      "aside" 
+      "footer" !important;
 
-a:hover { 
-    text-decoration: underline; 
-    color: #ffc66d; /* Amber hover color for visibility */
-}
-
-ul { 
-    list-style: none; 
-    padding-left: 0; 
-    margin-top: 0.5em;
-}
-
-ul ul { 
-    padding-left: 10px; /* Small indentation */
-}
-
-li {
-    margin-bottom: 2px;
-}
-
-.current-file { 
-    font-weight: bold; 
-    color: #c586c0; /* Highlighted pink/magenta */
-    background-color: #333; 
-    padding: 1px 3px;
-    display: inline-block;
-}
-
-.ellipsis { 
-    color: #888; 
-    margin-left: 5px;
-}
-
-.nav-link[title] { 
-    cursor: help; 
-}
-
-/* --- Code and Preformatted Blocks --- */
-pre {
-    background-color: #0d0d0d;
-    border: 1px solid #333;
-    padding: 10px;
-    overflow-x: auto;
-}
-
-code {
-    color: #dcdcaa; /* Yellow/Gold for inline code */
-    background-color: #252526;
-    padding: 1px 3px;
-}
-
-/* --- Media Query for Mobile/Small Screens (Handles Zoom In/Out) --- */
-@media (max-width: 800px) {
-    body {
-        flex-direction: column; /* Stacks header and main content */
-        font-size: 14px; /* Slightly larger font on small screens */
-    }
-    header {
-        width: 100%;
-        padding-right: 0;
-        padding-bottom: 15px;
-        border-right: none;
-        border-bottom: 1px solid #333;
-    }
-    main {
-        padding-left: 0;
-        padding-top: 15px;
-    }
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto !important; 
+    gap: 10px !important;
+  }
 }

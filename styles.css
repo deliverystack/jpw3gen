@@ -3,17 +3,17 @@
   /* 🛑 GUARANTEE GRID WORKS */
   display: grid !important; 
   
-  /* 3-Column Layout Definition */
-  grid-template-columns: 250px 1fr 250px !important;
+  /* 2-Column Layout Definition: nav (250px) | main (1fr) */
+  grid-template-columns: 250px 1fr !important;
 
   /* Rows: Header (auto) | Main Content Area (1fr) | Footer (auto) */
   grid-template-rows: auto 1fr auto !important; 
 
-  /* Define the layout using named areas */
+  /* Define the layout using named areas: REMOVED "aside" */
   grid-template-areas: 
-    "header header header"
-    "nav main aside"
-    "footer footer footer" !important; /* Force area mapping */
+    "header header"
+    "nav main"
+    "footer footer" !important; /* Force area mapping */
 
   gap: 20px !important; 
   min-height: 100vh !important; 
@@ -21,7 +21,7 @@
   max-width: 1400px !important; 
   
   /* TEMPORARY: Check the border to confirm CSS is being loaded */
-  border: 4px solid blue !important; 
+  border: 1px solid black !important;
 }
 
 /* --- 2. Placement and Visibility Styles --- */
@@ -44,14 +44,20 @@ main {
   grid-area: main !important; /* Center Content */
   background: white !important;
   padding: 20px !important;
+  /* Text naturally wraps by default in block containers like 'main'. 
+     If it didn't wrap for extremely long words, you'd use word-break: break-word or overflow-wrap: break-word. */
+}
+
+main pre {
+  white-space: pre-wrap !important; /* Ensures the browser respects newlines in the source */
+  word-wrap: break-word !important; /* For older browsers */
+  overflow-wrap: break-word !important; /* Standard property for breaking at word boundaries */
+  word-break: break-all !important; /* Forces breaking of long, unbreakable strings (like URLs or very long words) */
 }
 
 aside {
-  grid-area: aside !important; /* Right Column */
-  background: #f1f1f1 !important;
-  padding: 20px !important;
-  border: 1px solid #ccc !important;
-  min-height: 200px !important; 
+  /* HIDE THE RIGHT COLUMN ENTIRELY */
+  display: none !important; 
 }
 
 footer {
@@ -69,8 +75,7 @@ footer {
       "header"
       "nav"
       "main"
-      "aside" 
-      "footer" !important;
+      "footer" !important; /* Removed "aside" */
 
     grid-template-columns: 1fr !important;
     grid-template-rows: auto !important; 

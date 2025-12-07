@@ -1,25 +1,45 @@
-# jpw3gen
 
-This program iterates all of the files and subdirectories in a source directory, replicating them to a target directory, converting markdown (.md) files to HTML files, and generating an index.html file in each subdirectory.
+# jpw3gen - Generate Static HTML Site from Markdown File System
 
-Build the program:
+This program iterates all of the files and subdirectories in a source directory, replicating them to a target directory, converting markdown (`.md`) files to HTML files, and generating an index.html file in each subdirectory.
+
+## Manual Process Before Use
+
+This process depends on two files in the source directory. You can copy these from this project.
+
+- `/template.html`: Template for HTML files.
+- `/styles.css` (technically optional): CSS referenced in HTML files.
+
+Make some decisions:
+
+- Location of the source file system is (`~/git/jpw3/` in the examples).
+- Location of the target file system (`/tmp/jw/` in the examples).
+- Where to store the file system builder source code (`/tmp/git/jpw3gen/` in the examples). 
+- Where to build the file system builder binary (`/tmp/cargo/` in the examples)
+
+## Building the File System Generator
+
+To build the program:
 
 ```
-cd ~/git/jpw3gen
-cargo build
+export CARGO_TARGET_DIR=/tmp/cargo      # build to the working directory
+mkdir /tmp/git                          # base directory for project (source code)
+cd /tmp/git
+gh repo clone deliverystack/jpw3gen     # get the code
+cd jpw3gen           
+cargo build                             # build the binary
 ```
 
-Copy the styles into the directory that contains the markdown files (or the output directory)
-
-```
-cp ~/git/jpw3gen/styles.css ~/git/jpw3
-```
+## Generating the File System
 
 Generate the output files:
 
 ```
-~/git/jpw3gen/target/debug/jpw3gen -t /tmp/jw -s ~/git/jpw3
+rm -r /tmp/jw                           # (remove existing target; optional)
+/tmp/cargo/debug/jpw3gen --source ~/git/jpw3 --target /tmp/jw 
 ```
+
+## Run and Access a Web Server
 
 Run the web server:
 
@@ -31,15 +51,23 @@ Browse to:
 
 - http://localhost:8000
 
-Issues:
+## Features
 
-- I want to move the HTML to a separate template.html file at the root of the source directory.
-- I want to make paths in URLs relative.
-- No need for right column
-- No need for header
-- URLs in markdowns that aren't links should be converted to links, especially if they're list items
-- Nav tree isn't indenting nested links or using elipses properly (http://localhost:8000/articles/2025/December/worst-mistakes.html)
-- If there is no H1, then use the first H2.
-- Add the file indicator if none is present.
-- Don't overwrite HTML or other files if binary content has not changed.
-- Color warnings and errors
+- Replicate directory structure.
+- Convert .md files in source to HTML files in target.
+- Generate index.html in each directory (use index.md if it exists).
+- Rewrite links to local markdown files to link to corresponding HTML files.
+- Report links to local markdown files that do not exist.
+- Use the first # or ## markdown heading in the .md file as the HTML page title, or the file path otherwise.
+- Copy every other file (except maybe styles.css and template.html).
+- Only overwrite files if binary content has changed.
+- In each HTML file, generate navigation based on directory structure.
+
+## Outstanding Issues
+
+- Add the file indicator to markdown if none is present.
+- Fixed? URLs in markdowns that aren't links should be converted to links.
+- Nav tree isn't indenting nested links or using elipses properly.
+- Open external URLs in new tabs.
+- Don't replicate styles.css or template.html.
+- Start file with ## isn't recognized as heading

@@ -26,3 +26,20 @@ Run the web server:
 ```
 python3 -m http.server 8000 --directory /tmp/jw
 ```
+
+Browse to:
+
+- http://localhost:8000
+
+Issues:
+
+- I want to move the HTML to a separate template.html file at the root of the source directory.
+- I want to make paths in URLs relative.
+- No need for right column
+- No need for header
+- URLs in markdowns that aren't links should be converted to links, especially if they're list items
+- Nav tree isn't indenting nested links or using elipses properly (http://localhost:8000/articles/2025/December/worst-mistakes.html)
+- If there is no H1, then use the first H2.
+- Add the file indicator if none is present.
+- Don't overwrite HTML or other files if binary content has not changed.
+- Color warnings and errors

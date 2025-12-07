@@ -1,4 +1,8 @@
-cargo run -- -v --target /tmp/jw
+export CARGO_TARGET_DIR=/tmp/cargo
+rm -r /tmp/jw
+/tmp/cargo/debug/jpw3gen -t /tmp/jw -s ~/git/jpw3
+python3 -m http.server 8000 --directory /tmp/jw
+
 
 can you generate a simple styles.css for this, that is somewhat technical in appearance, uses small fonts, conserves screen real estate, but does well with zoom out?
 

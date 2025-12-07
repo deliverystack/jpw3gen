@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 pulldown-cmark = "0.9"
+pathdiff = "0.2.1"

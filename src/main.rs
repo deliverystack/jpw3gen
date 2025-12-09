@@ -7,7 +7,28 @@ use std::{
     collections::HashSet,
 };
 
-/// Structure to hold arguments parsed by clap.
+
+use std::collections::BTreeMap; 
+
+#[derive(Debug, Clone)]
+enum NavItem {
+    File {
+        // Full relative path from the source root, e.g., "docs/about.md"
+        rel_path: PathBuf,
+        // The display name (e.g., "about.html")
+        name: String, 
+        is_current: bool,
+    },
+    Directory {
+        // Full relative path from the source root, e.g., "docs"
+        rel_path: PathBuf,
+        // The display name (e.g., "docs")
+        name: String,
+        // Map of children, keyed by name for sorting
+        children: BTreeMap<String, NavItem>, 
+    },
+}
+
 #[derive(Debug)]
 struct Args {
     source: PathBuf,
@@ -15,13 +36,168 @@ struct Args {
     verbose: bool,
 }
 
+type NavTree = BTreeMap<String, NavItem>; 
+
+fn build_nav_tree(site_map: &SiteMap, current_rel_path: &Path) -> NavItem {
+    let mut root_children: NavTree = BTreeMap::new();
+    let current_html_path = current_rel_path.with_extension("html");
+    
+    let mut sorted_paths: Vec<PathBuf> = site_map.iter().cloned().collect();
+    sorted_paths.sort();
+
+    for rel_path in sorted_paths {
+        if rel_path.file_name().map_or(false, |n| n == "template.html" || n == "styles.css") {
+            continue;
+        }
+
+        let mut components = rel_path.components().peekable();
+        // Start traversal from the root map
+        let mut current_map = &mut root_children;
+        let mut path_so_far = PathBuf::new();
+
+        while let Some(component) = components.next() {
+            let component_name = component.as_os_str().to_string_lossy().to_string();
+            path_so_far.push(component_name.clone());
+
+            let is_last_component = components.peek().is_none();
+            
+            if is_last_component {
+                // This is a FILE (leaf node)
+                let is_md = rel_path.extension().map_or(false, |ext| ext == "md");
+                let file_name = if is_md {
+                    rel_path.file_stem().unwrap_or_default().to_string_lossy().to_string() + ".html"
+                } else {
+                    rel_path.file_name().unwrap_or_default().to_string_lossy().to_string()
+                };
+
+                let item = NavItem::File {
+                    rel_path: rel_path.clone(),
+                    name: file_name,
+                    is_current: rel_path.with_extension("html") == current_html_path,
+                };
+                
+                current_map.insert(component_name, item);
+
+            } else {
+                // This is a DIRECTORY (branch node)
+
+                // The .entry().or_insert_with() creates a temporary mutable reference
+                // to the NavItem. We use a match to safely extract the `children` map
+                // and reassign current_map to it.
+                current_map = match current_map.entry(component_name.clone()).or_insert_with(|| {
+                    NavItem::Directory {
+                        rel_path: path_so_far.clone(),
+                        name: component_name,
+                        children: BTreeMap::new(),
+                    }
+                }) {
+                    NavItem::Directory { children, .. } => children,
+                    // This case should never happen if logic is correct, but required by match
+                    NavItem::File {..} => panic!("Attempted to traverse into a file as if it were a directory!"), 
+                };
+            }
+        }
+    }
+
+    NavItem::Directory {
+        rel_path: PathBuf::new(),
+        name: "Root".to_string(),
+        children: root_children,
+    }
+}
+
+fn nav_tree_to_html(
+    nav_item: &NavItem,
+    current_rel_path: &Path,
+    site_map: &SiteMap,
+    args: &Args,
+    is_root: bool, // Set to true only for the initial call on the top-level Directory
+) -> String {
+    use NavItem::*;
+    match nav_item {
+        File { rel_path, name, is_current } => {
+            let site_root_path = PathBuf::from("/").join(rel_path);
+            let link_path = rewrite_link_to_relative(current_rel_path, &site_root_path, site_map, false);
+            let title_attr = rel_path.to_string_lossy(); 
+
+            if *is_current {
+                 format!(
+                    "<li class=\"current-file\" title=\"{}\">{}</li>",
+                    title_attr, name
+                )
+            } else {
+                format!(
+                    "<li><a class=\"nav-link\" href=\"{}\" title=\"{}\">{}</a></li>",
+                    link_path, title_attr, name
+                )
+            }
+        }
+        Directory { rel_path, name, children } => {
+            let mut html = String::new();
+            
+            // 1. Determine the link for this directory's index page
+            let index_link_path = {
+                let site_root_path = if rel_path.as_os_str().is_empty() {
+                    PathBuf::from("/index.md")
+                } else {
+                    PathBuf::from("/").join(rel_path).join("index.md")
+                };
+                rewrite_link_to_relative(current_rel_path, &site_root_path, site_map, false)
+            };
+
+            // 2. Start the List or Collapsible Directory Container
+            // If it's the absolute root, just start the list.
+            if is_root {
+                html.push_str("<ul>");
+            } else if !children.is_empty() {
+                // If it's any other directory, wrap its content in a list item 
+                // containing a collapsible <details> tag.
+                
+                // Determine if this directory is an ancestor of the current page.
+                let is_open = current_rel_path.starts_with(rel_path);
+
+                html.push_str("<li>");
+                html.push_str(&format!(
+                    "<details {}>", 
+                    if is_open { "open" } else { "" }
+                ));
+                html.push_str(&format!(
+                    "<summary><a href=\"{}\">{}</a></summary>",
+                    index_link_path, name
+                ));
+                html.push_str("<ul>"); // Start the nested list inside <details>
+            }
+
+            // 3. Recursively Process Children (The Key Fix)
+            // This loop must run regardless of whether it's the root or a nested directory,
+            // as long as the directory has content.
+            for (_, child) in children {
+                // The recursive call handles the generation for files or nested directories.
+                html.push_str(&nav_tree_to_html(child, current_rel_path, site_map, args, false));
+            }
+            
+            // 4. Close the Containers
+            if is_root {
+                html.push_str("</ul>");
+            } else if !children.is_empty() {
+                // Close the nested <ul>, then the <details>, then the <li>
+                html.push_str("</ul>"); 
+                html.push_str("</details>");
+                html.push_str("</li>");
+            }
+
+            html
+        }
+    }
+}
+
+
 /// A global map of all files to easily check for links.
 type SiteMap = HashSet<PathBuf>;
 
-// --- Coloring Helpers (Using ANSI Escape Codes) ---
-const COLOR_RED: &str = "\x1b[31m";    // Errors (Fatal)
-const COLOR_YELLOW: &str = "\x1b[33m"; // Warnings (Non-critical issues, e.g., broken link)
-const COLOR_CYAN: &str = "\x1b[36m";   // Info (General process messages)
+const COLOR_RED: &str = "\x1b[31m";    
+const COLOR_YELLOW: &str = "\x1b[33m"; 
+const COLOR_CYAN: &str = "\x1b[36m";   
 const COLOR_RESET: &str = "\x1b[0m";
 
 fn print_error(message: &str) {
@@ -35,7 +211,6 @@ fn print_warning(message: &str) {
 fn print_info(message: &str) {
     eprintln!("{}INFO{}: {}", COLOR_CYAN, COLOR_RESET, message);
 }
-// --- End Coloring Helpers ---
 
 fn main() -> io::Result<()> {
     let args = parse_args();
@@ -55,10 +230,9 @@ fn main() -> io::Result<()> {
             print_info(&format!("Creating target directory: {}", args.target.display()));
         }
     }
-    // Ensure the target directory exists.
+
     fs::create_dir_all(&args.target)?;
 
-    // --- Template Reading (MANDATORY) ---
     let html_template = match read_template(&args.source, &args) {
         Ok(template) => template,
         Err(e) => {
@@ -67,7 +241,6 @@ fn main() -> io::Result<()> {
         }
     };
 
-    // --- Build Site Map and Process Files ---
     let site_map = build_site_map(&args.source)?;
     if args.verbose {
         print_info(&format!("Identified {} files for processing.", site_map.len()));
@@ -242,19 +415,50 @@ fn smart_copy_file(args: &Args, path_source: &Path, path_target: &Path, rel_path
 }
 
 fn markdown_to_html(args: &Args, site_map: &SiteMap, path_source: &Path, path_target: &Path, path_rel: &Path, html_template: &str) -> io::Result<()> {
-     let markdown_input = fs::read_to_string(path_source)?;
-//TODO: deal with the issue where it doesn't find the first heading unless there is whitespace before it
-    //let markdown_input = format!("\n\n{}", fs::read_to_string(path_source).expect("Could not read file"));
+    let markdown_input = fs::read_to_string(path_source)?;
+        
+    // Check for non-whitespace start (from previous turn)
+    if !markdown_input.chars().next().map_or(true, char::is_whitespace) {
+        print_warning(&format!(
+            "File {} does not start with whitespace. This may cause the first heading to fail.", 
+            path_rel.display()
+        ));
+    }
+
+    // START NEW ADDITION: Check for the //...# pattern
+    let lines: Vec<&str> = markdown_input.lines().collect();
+    let mut is_in_comment_paragraph = false;
+
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        
+        if trimmed.starts_with("//") {
+            // Line starts a comment paragraph
+            is_in_comment_paragraph = true;
+        } else if trimmed.is_empty() {
+            // Blank line: if we're in a comment paragraph, the state continues.
+            // We only check for the failure case below.
+        } else if trimmed.starts_with("#") && is_in_comment_paragraph {
+            // Found the failure pattern: //... followed by a heading on a new non-blank line
+            print_warning(&format!(
+                "File {} contains a potential parsing error on line {}: ATX Heading ('#') found immediately after a '//' comment block that was separated by only one blank line. This will be consumed as text.",
+                path_rel.display(),
+                i + 1 // Line number is 1-indexed
+            ));
+            
+            // Reset the flag to avoid spamming the warning if multiple headings follow
+            is_in_comment_paragraph = false;
+        } else {
+            // Any other non-blank line (like a regular paragraph, list, or valid block)
+            // should reset the comment flag, as it closes the preceding paragraph.
+            is_in_comment_paragraph = false;
+        }
+    }
     
     let mut options = Options::empty();
     
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TASKLISTS);
-    // REMOVED Options::ENABLE_AUTOLINK which caused E0599.
-    // The link detection is usually part of CommonMark features or ENABLE_SMART_PUNCTUATION.
-    
-    // Enabling SMART_PUNCTUATION implicitly improves autolinking behavior 
-    // (which should be enabled by default in Parser::new_ext anyway).
     options.insert(Options::ENABLE_SMART_PUNCTUATION); 
     
     let parser = Parser::new_ext(&markdown_input, options);
@@ -648,133 +852,9 @@ fn format_html_page(title: &str, nav_html: &str, content: &str, html_template: &
 }
 
 fn generate_navigation_html(args: &Args, site_map: &SiteMap, current_rel_path: &Path) -> String { 
-    let current_dir_rel = current_rel_path.parent().unwrap_or(Path::new(""));
-    
-    let components: Vec<&str> = current_dir_rel
-        .iter()
-        .filter_map(|s| s.to_str())
-        .collect();
-    let depth = components.len(); 
+    // Build the nested tree structure from the flat site_map
+    let nav_tree = build_nav_tree(site_map, current_rel_path);
 
-    let mut nav_html = String::from("<ul>");
-    
-    // --- 1. Root Link ---
-    let root_link_target = PathBuf::from("/index.md"); 
-    let root_link = rewrite_link_to_relative(current_rel_path, &root_link_target, site_map, false);
-    nav_html.push_str(&format!(
-        "<li><a href=\"{}\" title=\"Site Root\">/</a></li>",
-        root_link
-    ));
-
-    let mut current_path_builder = PathBuf::new();
-    
-    for component in components.iter().take(depth.saturating_sub(1)) {
-        current_path_builder.push(component);
-        
-        let nav_item_path = PathBuf::from("/").join(&current_path_builder).join("index.md");
-        let path_link = rewrite_link_to_relative(current_rel_path, &nav_item_path, site_map, false);
-        
-        nav_html.push_str(&format!(
-            "<li><a href=\"{}\" title=\"Directory: {}\">{}</a></li>",
-            path_link, current_path_builder.display(), component
-        ));
-    }
-
-    let current_dir_name = current_dir_rel.file_name().map_or("Root", |s| s.to_str().unwrap_or(""));
-    
-    nav_html.push_str(&format!(
-        "<li class=\"current-dir-list\">{}: <ul>",
-        current_dir_name
-    ));
-
-    let mut files = Vec::new();
-    let mut subdirs: HashSet<PathBuf> = HashSet::new();
-
-    for rel_path in site_map.iter() {
-        if let Some(parent) = rel_path.parent() {
-            if parent == current_dir_rel {
-                if !rel_path.ends_with("styles.css") {
-                    files.push(rel_path.to_path_buf());
-                }
-            } 
-            else if rel_path.starts_with(current_dir_rel) {
-                if let Ok(path_suffix) = rel_path.strip_prefix(current_dir_rel) {
-                    if let Some(first_component) = path_suffix.components().next() {
-                        if let Some(dir_name) = first_component.as_os_str().to_str() {
-                            let child_dir_path = current_dir_rel.join(dir_name);
-                            subdirs.insert(child_dir_path);
-                        }
-                    }
-                }
-            } 
-        }
-    }
-
-    if let Ok(dir_entries) = fs::read_dir(Path::new(&args.source).join(current_dir_rel)) {
-        for entry in dir_entries {
-            if let Ok(entry) = entry {
-                if entry.file_type().map_or(false, |ft| ft.is_dir()) {
-                    if let Some(name) = entry.file_name().to_str() {
-                        if !name.starts_with('.') {
-                            let child_dir_path = current_dir_rel.join(name);
-                            subdirs.insert(child_dir_path);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    let mut sorted_subdirs: Vec<PathBuf> = subdirs.into_iter().collect();
-    sorted_subdirs.sort();
-
-    for dir_path in sorted_subdirs {
-        // Get a reference to dir_path for string functions
-        let dir_path_ref = &dir_path; 
-        let dir_name = dir_path_ref.file_name().unwrap().to_string_lossy();
-        
-        // Clone the path explicitly before passing ownership to PathBuf::from().join()
-        let site_root_path = PathBuf::from("/").join(dir_path.clone()).join("index.md");
-        let link_path = rewrite_link_to_relative(current_rel_path, &site_root_path, site_map, false);
-        
-        nav_html.push_str(&format!(
-            "<li><a href=\"{}\" title=\"Directory Index: {}\">{} (Dir)</a></li>",
-            link_path, dir_path_ref.display(), dir_name
-        ));
-    }
-
-    files.sort();
-    
-    for rel_path in files {
-        let is_current = rel_path.with_extension("html") == current_rel_path.with_extension("html");
-        
-        let (link_path, file_name) = {
-            let site_root_path = PathBuf::from("/").join(&rel_path);
-            let link = rewrite_link_to_relative(current_rel_path, &site_root_path, site_map, false);
-            
-            if rel_path.extension().map_or(false, |ext| ext == "md") {
-                (link, rel_path.file_stem().unwrap().to_string_lossy().to_string() + ".html")
-            } else {
-                (link, rel_path.file_name().unwrap().to_string_lossy().to_string())
-            }
-        };
-        
-        let title_attr = rel_path.to_string_lossy(); 
-        
-        if is_current {
-             nav_html.push_str(&format!(
-                "<li class=\"current-file\" title=\"{}\">{}</li>",
-                title_attr, file_name
-            ));
-        } else {
-            nav_html.push_str(&format!(
-                "<li><a class=\"nav-link\" href=\"{}\" title=\"{}\">{}</a></li>",
-                link_path, title_attr, file_name
-            ));
-        }
-    }
-
-    nav_html.push_str("</ul></li>");
-    nav_html.push_str("</ul>");
-    nav_html
-}   
+    // Recursively convert the tree to nested HTML
+    nav_tree_to_html(&nav_tree, current_rel_path, site_map, args, true)
+}

@@ -1,0 +1,17 @@
+
+# /etc/systemd/system/jpw3.service
+
+[Unit]
+Description=jpw3 static file web server
+After=network.target
+
+[Service]
+Type=simple 
+User=jw 
+ExecStart=/usr/bin/python3 -m http.server 8000 --directory /home/jw/tmp/jpw3
+#Restart=on-failure
+#RestartSec=1
+Environment="PYTHONUNBUFFERED=1" 
+
+[Install]
+WantedBy=multi-user.target

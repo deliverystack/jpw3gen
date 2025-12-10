@@ -22,6 +22,7 @@ Make some decisions:
 You may want to see:
 
 - https://github.com/deliverystack/jpw3gen/blob/main/jwbnr.sh
+- https://deliverystack.net/2025/12/10/fedora-linux-simple-static-web-server-startup
 
 To build the program:
 

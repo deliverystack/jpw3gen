@@ -2,13 +2,11 @@ use clap::{Arg, Command};
 use pulldown_cmark::{Parser, Options, Event};
 use std::{
     fs,
+    io,
     path::{Path, PathBuf},
-    io::{self},
-    collections::HashSet,
+    collections::{HashSet, BTreeMap},
 };
-
-
-use std::collections::BTreeMap; 
+use regex::Regex;
 
 #[derive(Debug, Clone)]
 enum NavItem {
@@ -415,56 +413,116 @@ fn smart_copy_file(args: &Args, path_source: &Path, path_target: &Path, rel_path
 }
 
 fn markdown_to_html(args: &Args, site_map: &SiteMap, path_source: &Path, path_target: &Path, path_rel: &Path, html_template: &str) -> io::Result<()> {
+    // Regex to remove all Unicode control characters, excluding standard newlines and tabs.
+    let control_char_regex = Regex::new(r"[\p{Cc}\p{Cf}&&[^\n\t\r]]").unwrap();
+
     let markdown_input = fs::read_to_string(path_source)?;
-        
-    // Check for non-whitespace start (from previous turn)
-    if !markdown_input.chars().next().map_or(true, char::is_whitespace) {
-        print_warning(&format!(
-            "File {} does not start with whitespace. This may cause the first heading to fail.", 
-            path_rel.display()
-        ));
+    
+    // --- START FINAL CORRECTION & CLEANUP BLOCK ---
+    
+    // 1. AGGRESSIVE CLEANING & DASH CONVERSION
+    let cleaned_content_stage_1: String = control_char_regex.replace_all(&markdown_input, "")
+        .to_string()
+        .replace('\r', "")      // Normalize to Unix line endings
+        // TARGETED DASH FIX: Convert specialized dashes to their proper Markdown source equivalent
+        .replace('\u{2011}', "-") // Non-Breaking Hyphen -> standard hyphen
+        .replace('\u{2013}', "-") // En Dash -> standard hyphen
+        .replace('\u{2014}', "--") // Em Dash -> two standard hyphens (REQUIRED for Markdown to render Em Dash)
+        .replace('\u{00A0}', " "); // Non-breaking space to standard space
+
+    // 2. C-COMMENT CONVERSION
+    // Convert '//' lines to Markdown HTML comments to preserve them without breaking headings.
+    let lines_to_convert: Vec<String> = cleaned_content_stage_1.lines()
+        .map(|line| {
+            if line.trim_start().starts_with("//") {
+                let comment_text = line.trim_start().trim_start_matches('/');
+                // FIX 1: Corrected format! macro syntax
+                format!("{}", comment_text) 
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+    
+    let content_with_converted_comments = lines_to_convert.join("\n");
+    
+    // FIX 2: Added .clone() to prevent move error E0382
+    let mut final_content = content_with_converted_comments.clone();
+
+    // 3. ENSURE LEADING NEWLINE
+    let starts_with_whitespace = final_content.chars().next().map_or(true, char::is_whitespace);
+    
+    // 4. DETERMINE IF MODIFICATION OCCURRED (Comparison variable is now safely accessed)
+    let original_normalized_for_comparison: String = content_with_converted_comments; // Safely moves here as it's no longer needed after clone
+    
+    let mut content_was_structurally_modified = final_content != original_normalized_for_comparison;
+
+    if !starts_with_whitespace {
+        final_content.insert(0, '\n');
+        content_was_structurally_modified = true; 
     }
 
-    // START NEW ADDITION: Check for the //...# pattern
-    let lines: Vec<&str> = markdown_input.lines().collect();
-    let mut is_in_comment_paragraph = false;
-
-    for (i, line) in lines.iter().enumerate() {
-        let trimmed = line.trim();
+    // 5. OVERWRITE FILE IF MODIFIED AND REPORT WARNINGS
+    if content_was_structurally_modified {
+        // Overwrite the original source file with the corrected content
+        fs::write(path_source, &final_content)?;
         
-        if trimmed.starts_with("//") {
-            // Line starts a comment paragraph
-            is_in_comment_paragraph = true;
-        } else if trimmed.is_empty() {
-            // Blank line: if we're in a comment paragraph, the state continues.
-            // We only check for the failure case below.
-        } else if trimmed.starts_with("#") && is_in_comment_paragraph {
-            // Found the failure pattern: //... followed by a heading on a new non-blank line
-            print_warning(&format!(
-                "File {} contains a potential parsing error on line {}: ATX Heading ('#') found immediately after a '//' comment block that was separated by only one blank line. This will be consumed as text.",
-                path_rel.display(),
-                i + 1 // Line number is 1-indexed
+        print_warning(&format!("Corrected source file: {}", path_source.display()));
+        
+        if !starts_with_whitespace {
+             print_warning(&format!(
+                "File {} did not start with whitespace. Prepended a blank line.", 
+                path_rel.display()
             ));
-            
-            // Reset the flag to avoid spamming the warning if multiple headings follow
-            is_in_comment_paragraph = false;
-        } else {
-            // Any other non-blank line (like a regular paragraph, list, or valid block)
-            // should reset the comment flag, as it closes the preceding paragraph.
-            is_in_comment_paragraph = false;
         }
+
+    } else if args.verbose {
+        print_info(&format!("Source file requires no modification: {}", path_source.display()));
     }
     
+    // --- END FILE CORRECTION BLOCK ---
+    
+    // 6. LINK CHECKING
+    // Regex finds all Markdown links that end in .md
+    let link_regex = Regex::new(r"\[[^\]]+\]\(([^)]+\.md)\)").unwrap();
+    let parent_dir = path_source.parent().unwrap_or_else(|| Path::new(""));
+
+    for caps in link_regex.captures_iter(&final_content) {
+        let link_target = &caps[1];
+        let target_path = parent_dir.join(link_target);
+
+        // Check if the target .md file exists relative to the source file
+        if !target_path.exists() {
+            print_warning(&format!(
+                "Broken link detected in {}: Link to non-existent file '{}' at full path {}", 
+                path_rel.display(), 
+                link_target,
+                target_path.display()
+            ));
+        }
+    }
+
+
+    // 7. RENDER MARKDOWN TO HTML
     let mut options = Options::empty();
     
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TASKLISTS);
     options.insert(Options::ENABLE_SMART_PUNCTUATION); 
     
-    let parser = Parser::new_ext(&markdown_input, options);
+    // Use the final_content for parsing
+    let parser = Parser::new_ext(&final_content, options); 
     
     let (html_output_content, title) = process_markdown_events(args, site_map, parser, path_rel);
 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
     let mut path_target_html = path_target.to_path_buf();
     path_target_html.set_extension("html");
     
@@ -780,7 +838,7 @@ fn generate_all_index_files(args: &Args, site_map: &SiteMap, html_template: &str
             let (html_output, title) = process_markdown_events(args, site_map, parser, &index_md_path);
             (title, html_output)
         } else {
-            print_warning(&format!("No index.md found in directory: {}", rel_dir_path.display()));
+//            print_warning(&format!("No index.md found in directory: {}", rel_dir_path.display()));
             let title = if rel_dir_path.as_os_str().is_empty() {
                 "Root Index".to_string()
             } else {
@@ -831,7 +889,7 @@ fn generate_all_index_files(args: &Args, site_map: &SiteMap, html_template: &str
                 if args.verbose {
                     print_info(&format!("Successfully generated index.html at: {}", path_target.display()));
                 } else {
-                    println!("Generated index.html for: {}", rel_dir_path.display());
+//                    println!("Generated index.html for: {}", rel_dir_path.display());
                 }
             }
             Err(e) => {

@@ -7,3 +7,4 @@ edition = "2021"
 clap = { version = "4", features = ["derive"] }
 pulldown-cmark = "0.9"
 pathdiff = "0.2.1"
+regex = "1.10.4"

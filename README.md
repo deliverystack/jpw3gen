@@ -12,12 +12,16 @@ This process depends on two files in the source directory. You can copy these fr
 
 Make some decisions:
 
-- Location of the source file system is (`~/git/jpw3/` in the examples).
-- Location of the target file system (`/tmp/jw/` in the examples).
+- Location of the source file system is (`/home/jw/git/jpw3/` in the examples).
+- Location of the target file system (`/home/jw/tmp/jpw3` in the examples).
 - Where to store the file system builder source code (`/tmp/git/jpw3gen/` in the examples). 
 - Where to build the file system builder binary (`/tmp/cargo/` in the examples)
 
 ## Building the File System Generator
+
+You may want to see:
+
+- https://github.com/deliverystack/jpw3gen/blob/main/jwbnr.sh
 
 To build the program:
 
@@ -73,3 +77,5 @@ Browse to:
 - Start file with ## isn't recognized as heading
 - Put file path in .md and .html and modification datestamp at end of HTML file
 - Apply ideas from https://github.com/deliverystack/wink/blob/main/wince to jwbnr.sh
+- Documentation including features
+- Refactoring, cleanup, and comment code

@@ -144,14 +144,31 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, path_source: &Path, pat
         // Check if the target .md file exists relative to the source file
         if !target_path.exists() {
             print_warning(&format!(
-                "Broken link detected in {}: Link to non-existent file '{}' at full path {}", 
+                "Broken link detected in {}: Link to non-existent file '{}'", // at full path {}", 
                 path_rel.display(), 
                 link_target,
-                target_path.display()
+//                target_path.display()
             ));
         }
     }
 
+    let image_link_regex = Regex::new(r"!\[[^\]]*\]\(([^)]+\.(png|jpe?g|gif|svg))\)")
+        .unwrap();
+
+    for caps in image_link_regex.captures_iter(&final_content) {
+        // caps[1] captures the full path within the parentheses
+        let link_target = &caps[1]; 
+        let target_path = parent_dir.join(link_target);
+
+        // Check if the target image file exists relative to the source file
+        if !target_path.exists() {
+            print_warning(&format!(
+                "Broken image link detected in {}: Link to non-existent image '{}'", 
+                path_rel.display(), 
+                link_target,
+            ));
+        }
+    }
 
     // 7. RENDER MARKDOWN TO HTML
     let mut options = Options::empty();
@@ -159,7 +176,8 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, path_source: &Path, pat
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TASKLISTS);
-    options.insert(Options::ENABLE_SMART_PUNCTUATION); 
+//    options.insert(Options::ENABLE_SMART_PUNCTUATION);  //TODO: Actually, I would like to reverse this.
+    options.insert(Options::ENABLE_FOOTNOTES);
     
     // Use the final_content for parsing
     let parser = Parser::new_ext(&final_content, options); 

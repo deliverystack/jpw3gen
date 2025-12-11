@@ -1,10 +1,11 @@
 /* --- 1. Base Setup and Grid Definition (MAXIMUM PRIORITY) --- */
+
 #page-layout {
-  /* 🛑 GUARANTEE GRID WORKS */
+  grid-template-columns: max-content 1fr !important;
   display: grid !important; 
   
   /* 2-Column Layout Definition: nav (250px) | main (1fr) */
-  grid-template-columns: 250px 1fr !important;
+/*  grid-template-columns: 250px 1fr !important;*/
 
   /* Rows: Header (auto) | Main Content Area (1fr) | Footer (auto) */
   grid-template-rows: auto 1fr auto !important; 
@@ -31,13 +32,6 @@ header {
   background: #2c3e50 !important;
   color: white !important;
   padding: 20px !important;
-}
-
-nav {
-  grid-area: nav !important; /* Left Column */
-  background: #ecf0f1 !important;
-  padding: 20px !important;
-  min-height: 200px !important; 
 }
 
 main {
@@ -68,7 +62,6 @@ footer {
   text-align: center !important;
 }
 
-/* --- 3. Responsiveness --- */
 @media (max-width: 768px) {
   #page-layout { 
     grid-template-areas: 
@@ -81,4 +74,72 @@ footer {
     grid-template-rows: auto !important; 
     gap: 10px !important;
   }
+
+  /* ⭐ NEW RULE: Adjust Nav Padding for Mobile ⭐ */
+  nav {
+    /* Apply uniform padding on all sides for a clean look on a full-width element */
+    padding: 15px !important; 
+  }
+}
+
+nav {
+  grid-area: nav !important; /* Left Column */
+  background: #ecf0f1 !important;
+  /* 👈 FIX: Remove left padding so lists start at the edge */
+  padding: 20px 20px 20px 0 !important; /* Desktop/Sidebar Padding */
+  min-height: 200px !important; 
+}
+
+/* --- Navigation List Styles (Indentation Fix) --- */
+
+/* 1. Reset all ULs inside the NAV container */
+nav ul {
+  list-style-type: none !important; 
+  margin: 0 !important;
+  /* Reset padding here for safety, but we will override it below */
+  padding-left: 0 !important; 
+}
+
+nav li {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* 2. Target the *first* UL child of NAV (The Top Level) */
+/* This ensures the initial level starts flush with the nav's left edge (padding: 0) */
+nav > ul {
+    padding-left: 0 !important;
+}
+
+/* 3. Target ALL nested <ul> elements (The Indentation Rule) */
+/* By using the descendant selector (space) after 'li', we apply the padding 
+   to all ULs nested within any LI, causing the indentation to stack up. */
+nav li ul {
+  /* This is the key change: space instead of > */
+  padding-left: 10px !important; 
+  margin-top: 0 !important; 
+  margin-bottom: 0 !important;
+}
+
+/* 🚨 <summary> (for collapsible menus) */
+nav summary {
+  margin: 0 !important;
+}
+
+/* ⭐ INSERT THE SEPARATOR CSS HERE ⭐ */
+.nav-separator {
+    height: 10px !important; 
+    list-style-type: none !important;
+    border-top: 1px solid #c0c0c0 !important; 
+    margin: 5px 0 !important; 
+    padding: 0 !important; 
+}
+
+nav li > .nav-link,
+/* Also target the current file text, which is directly in the li */
+nav li.current-file {
+    /* Add 10px of left padding to create the horizontal space */
+    padding-left: 10px !important;
+    /* Make links display as block/inline-block to respect the padding */
+    display: inline-block !important; 
 }

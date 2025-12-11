@@ -107,7 +107,7 @@ fn nav_tree_to_html(
             let title_attr = rel_path.to_string_lossy(); 
 
             if *is_current {
-                 format!(
+                format!(
                     "<li class=\"current-file\" title=\"{}\">{}</li>",
                     title_attr, name
                 )
@@ -153,11 +153,26 @@ fn nav_tree_to_html(
             // 3. Recursively Process Children (NEW: Directory-First)
             
             // Pass A: Directories
+            let mut has_directories = false;
             for (_, child) in children.iter() {
                 if let NavItem::Directory { .. } = child {
                     html.push_str(&nav_tree_to_html(child, current_rel_path, site_map, args, false));
+                    has_directories = true;
                 }
             }
+            
+            // ⭐ CORRECTED MODIFICATION START
+            
+            // Check if there are any files to be listed next
+            let has_files = children.iter().any(|(_, child)| matches!(child, NavItem::File { .. }));
+            
+            if has_directories && has_files {
+                // Insert a separator list item here
+                // Use a class to style it as a space/separator with CSS
+                html.push_str("<li class=\"nav-separator\"></li>");
+            }
+            
+            // ⭐ CORRECTED MODIFICATION END
             
             // Pass B: Files
             for (_, child) in children.iter() {

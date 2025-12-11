@@ -2,7 +2,7 @@
 
 SRC=/home/jw/git/jpw3gen
 SOURCE=/home/jw/git/jpw3
-TARGET=/home/jw/tmp/jpw3
+TARGET=/home/jw/git/vercel
 export CARGO_TARGET_DIR=/tmp/cargo
 rm -r $TARGET/*
 cd $SRC

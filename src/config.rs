@@ -22,6 +22,16 @@ pub enum NavItem {
     },
 }
 
+// Helper implementation for mutable tree traversal
+impl NavItem {
+    pub fn get_children_mut(&mut self) -> Option<&mut BTreeMap<String, NavItem>> {
+        match self {
+            NavItem::Directory { children, .. } => Some(children),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Args {
     pub source: PathBuf,

@@ -2,7 +2,7 @@ use std::{
     fs,
     io,
     path::{Path, PathBuf},
-    collections::BTreeMap,
+    collections::BTreeMap
 };
 use regex::Regex; 
 use pulldown_cmark::Parser;
@@ -26,12 +26,47 @@ fn build_nav_tree(site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_pa
     // Create a persistent default value outside the loop
     let default_metadata = PageMetadata::default();
 
+    // Directory Exclusion Pre-processing (Re-added: Fix for directory visibility)
+    // NOTE: This requires 'use std::collections::HashSet;' at the top of the file.
+    let mut excluded_dirs = std::collections::HashSet::new();
+    
+    for rel_path in site_map.iter().filter(|p| p.file_name().map_or(false, |n| n == "index.md")) {
+        let metadata = metadata_map.get(rel_path).unwrap_or(&default_metadata);
+        
+        if metadata.exclude_from_nav.unwrap_or(false) {
+            if let Some(parent_dir) = rel_path.parent() {
+                excluded_dirs.insert(parent_dir.to_path_buf()); 
+            }
+        }
+    }
+    // END Directory Exclusion Pre-processing
+
     for rel_path in sorted_paths {
         let metadata = metadata_map.get(&rel_path).unwrap_or(&default_metadata);
 
         if metadata.exclude_from_nav.unwrap_or(false) {
             continue;
         }
+
+        // Correct Directory Exclusion Check (Re-added: Fix for nested files)
+        let is_in_excluded_dir = excluded_dirs.iter().any(|excluded_dir| {
+            !excluded_dir.as_os_str().is_empty() && rel_path.starts_with(excluded_dir)
+        });
+
+        if is_in_excluded_dir {
+            continue;
+        }
+        // END Correct Directory Exclusion Check
+
+        // --- NEW REQUIREMENT: Always exclude non-root index.md files ---
+        let is_index_md = rel_path.file_name().map_or(false, |n| n == "index.md");
+        // is_root is true only if the path is the root directory
+        let is_root = rel_path.parent().map_or(true, |p| p.as_os_str().is_empty()); 
+
+        if is_index_md && !is_root {
+            continue;
+        }
+        // --- END NEW REQUIREMENT ---
 
         // Exclude specific files and directories
         //TODO: use JSON in index.md in these directories instead
@@ -81,11 +116,18 @@ fn build_nav_tree(site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_pa
         // Start traversal from the root map
         let mut current_map = &mut root_children;
         let mut path_builder = PathBuf::new();
+        // Re-added: E0499 Fix Flag (Fix for Rust borrowing error)
+        let mut is_at_root_level = true; 
+        // END E0499 Fix Flag
 
         // Iterate through all components except the last one (the file)
         for i in 0..components.len() - 1 {
             let dir_name = &components[i];
             path_builder.push(dir_name);
+            
+            // Re-added: E0499 Fix Flag Update
+            is_at_root_level = false;
+            // END E0499 Fix Flag Update
 
             // Get or create the Directory item. Directory keys are still their names for simplicity
             let entry = current_map.entry(dir_name.clone()).or_insert_with(|| {
@@ -101,12 +143,16 @@ fn build_nav_tree(site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_pa
         }
 
         // 3. Insert the File item using the composite insertion_key
-        let is_current = rel_path.with_extension("html") == current_html_path;
-        current_map.insert(insertion_key, NavItem::File {
-            rel_path: rel_path.clone(),
-            name: file_name, // <-- This is the value that is displayed
-            is_current,
-        });
+        // Re-added: E0499 Fix Check
+        if !is_at_root_level || components.len() == 1 {
+            let is_current = rel_path.with_extension("html") == current_html_path;
+            current_map.insert(insertion_key, NavItem::File {
+                rel_path: rel_path.clone(),
+                name: file_name, // <-- This is the value that is displayed
+                is_current,
+            });
+        }
+        // END E0499 Fix Check
     }
 
     NavItem::Directory {
@@ -145,13 +191,37 @@ fn nav_tree_to_html(nav_item: &NavItem, current_rel_path: &Path, site_map: &Site
                 rewrite_link_to_relative(current_rel_path, &site_root_path, site_map, false)
             };
 
+            // --- MODIFIED: Ancestor highlighting and current page check (FIX 3) ---
+            let current_html_path = current_rel_path.with_extension("html");
+            // is_open: Path starts with rel_path (ancestor) AND is not the root
+            let is_open = current_rel_path.starts_with(rel_path) && !rel_path.as_os_str().is_empty();
+            let index_html_path = rel_path.join("index.md").with_extension("html");
+            let is_current_page = current_html_path == index_html_path;
+            
+            // Apply class to the <li> element if it's the current page's ancestor or the page itself
+            let li_class = if is_open || is_current_page { 
+                " class=\"current-branch\"" 
+            } else { 
+                "" 
+            };
+            
+            // Apply class to the summary link if it's the current page
+            let summary_class = if is_current_page { 
+                " class=\"current-summary\"" 
+            } else { 
+                "" 
+            };
+            // --- END MODIFIED ---
+
+
             if is_root {
                 html.push_str("<ul>");
             } else if !children.is_empty() {
-                let is_open = current_rel_path.starts_with(rel_path);
-                html.push_str("<li>");
+                // Use li_class to highlight the entire directory branch
+                html.push_str(&format!("<li{}>", li_class)); 
                 html.push_str(&format!("<details {}>", if is_open { "open" } else { "" }));
-                html.push_str(&format!("<summary><a href=\"{}\">{}</a></summary>", index_link_path, name));
+                // Use summary_class to highlight the link itself if it's the current page
+                html.push_str(&format!("<summary><a{} href=\"{}\">{}</a></summary>", summary_class, index_link_path, name)); 
                 html.push_str("<ul>");
             }
 

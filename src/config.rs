@@ -2,6 +2,19 @@ use std::{
     path::PathBuf,
     collections::{HashSet, BTreeMap},
 };
+use serde::{Deserialize, Serialize}; // Added imports
+
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
+pub struct PageMetadata {
+    pub page_title: Option<String>,
+    pub nav_title: Option<String>,
+    pub avoid_generation: Option<bool>,
+    pub exclude_from_nav: Option<bool>,
+    // NEW FIELD: If true, the JSON block is kept and rendered in the HTML.
+    pub keep_json_in_content: Option<bool>, 
+}
+
+pub type MetadataMap = BTreeMap<PathBuf, PageMetadata>;
 
 #[derive(Debug, Clone)]
 pub enum NavItem {
@@ -46,5 +59,5 @@ pub type SiteMap = HashSet<PathBuf>;
 
 pub const COLOR_RED: &str = "\x1b[31m";    
 pub const COLOR_YELLOW: &str = "\x1b[33m"; 
-pub const COLOR_CYAN: &str = "\x1b[36m";   
+pub const COLOR_CYAN: &str = "\x1b[36m";
 pub const COLOR_RESET: &str = "\x1b[0m";

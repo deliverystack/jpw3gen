@@ -4,32 +4,44 @@ use std::{
     path::{Path, PathBuf},
     collections::BTreeMap,
 };
+use regex::Regex; 
 use pulldown_cmark::Parser;
-use crate::config::{Args, NavItem, NavTree, SiteMap};
+use crate::config::{Args, NavItem, NavTree, SiteMap, MetadataMap, PageMetadata}; 
 use crate::io::{collect_all_dirs_robust, print_error, print_info};
 use crate::processing::{rewrite_link_to_relative, process_markdown_events, format_html_page, get_last_modified_date}; 
 
-pub fn generate_navigation_html(args: &Args, site_map: &SiteMap, current_rel_path: &Path) -> String { 
+pub fn generate_navigation_html(args: &Args, site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_path: &Path) -> String { 
     // Build the nested tree structure from the flat site_map
-    let nav_tree = build_nav_tree(site_map, current_rel_path);
+    let nav_tree = build_nav_tree(site_map, metadata_map, current_rel_path);
 
     // Recursively convert the tree to nested HTML
     nav_tree_to_html(&nav_tree, current_rel_path, site_map, args, true)
 }
 
-fn build_nav_tree(site_map: &SiteMap, current_rel_path: &Path) -> NavItem {
+fn build_nav_tree(site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_path: &Path) -> NavItem {
     let mut root_children: NavTree = BTreeMap::new();
     let current_html_path = current_rel_path.with_extension("html");
     
     let mut sorted_paths: Vec<PathBuf> = site_map.iter().cloned().collect();
     sorted_paths.sort(); 
 
+    // Create a persistent default value outside the loop
+    let default_metadata = PageMetadata::default();
+
     for rel_path in sorted_paths {
-        // Exclude styles.css and template.html
+        // Use the reference to the persistent default value if metadata is missing
+        let metadata = metadata_map.get(&rel_path).unwrap_or(&default_metadata);
+
+        if metadata.exclude_from_nav.unwrap_or(false) {
+            continue;
+        }
+
+        // Exclude specific files
         if rel_path.file_name().map_or(false, |n| n == "template.html" || n == "styles.css") {
             continue;
         }
 
+        // Exclude hardcoded directories
         if rel_path.starts_with("scraps") || rel_path.starts_with("life-story") {
             continue;
         }
@@ -42,7 +54,6 @@ fn build_nav_tree(site_map: &SiteMap, current_rel_path: &Path) -> NavItem {
         }
 
         // Convert path components to strings safely
-        // FIX: Replaced .as_normal() (which doesn't exist) with pattern matching on the enum
         let components: Vec<String> = rel_path.components()
             .filter_map(|c| match c {
                 std::path::Component::Normal(os_str) => Some(os_str.to_string_lossy().to_string()),
@@ -51,8 +62,19 @@ fn build_nav_tree(site_map: &SiteMap, current_rel_path: &Path) -> NavItem {
             .collect();
 
         if components.is_empty() { continue; }
-
-        let file_name = components.last().unwrap().clone();
+        
+        // 1. Determine the display name (nav_title has highest priority)
+        let file_name = if let Some(title) = metadata.nav_title.clone() {
+            // Priority 1: Use the explicit nav_title from metadata
+            title
+        } else {
+            // Priority 2: Fallback to the file stem (name without extension)
+            rel_path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(|s| s.to_string())
+                // Final fallback if all else fails (uses full component, e.g., "page.md")
+                .unwrap_or_else(|| components.last().unwrap().clone())
+        };
         
         // Start traversal from the root map
         let mut current_map = &mut root_children;
@@ -76,11 +98,11 @@ fn build_nav_tree(site_map: &SiteMap, current_rel_path: &Path) -> NavItem {
             current_map = entry.get_children_mut().expect("Item should be a directory");
         }
 
-        // Insert the File item into the current map (which is now the parent directory's children)
+        // Insert the File item into the current map. The key and the 'name' field are set to file_name.
         let is_current = rel_path.with_extension("html") == current_html_path;
         current_map.insert(file_name.clone(), NavItem::File {
             rel_path: rel_path.clone(),
-            name: file_name,
+            name: file_name, // <-- This is the value that is displayed in nav_tree_to_html
             is_current,
         });
     }
@@ -101,8 +123,10 @@ fn nav_tree_to_html(nav_item: &NavItem, current_rel_path: &Path, site_map: &Site
             let title_attr = rel_path.to_string_lossy(); 
 
             if *is_current {
+                // Uses 'name' field, which holds the nav_title override
                 format!("<li class=\"current-file\" title=\"{}\">{}</li>", title_attr, name)
             } else {
+                // Uses 'name' field, which holds the nav_title override
                 format!("<li><a class=\"nav-link\" href=\"{}\" title=\"{}\">{}</a></li>", link_path, title_attr, name)
             }
         }
@@ -165,44 +189,93 @@ fn nav_tree_to_html(nav_item: &NavItem, current_rel_path: &Path, site_map: &Site
     }
 }
 
-pub fn generate_all_index_files(args: &Args, site_map: &SiteMap, html_template: &str) -> io::Result<()> {
+pub fn generate_all_index_files(args: &Args, site_map: &SiteMap, metadata_map: &MetadataMap, html_template: &str) -> io::Result<()> {
     let dirs_to_index = collect_all_dirs_robust(&args.source)?;
     let mut sorted_dirs: Vec<PathBuf> = dirs_to_index.into_iter().collect();
     sorted_dirs.sort();
+    
+    // Create a persistent default value outside the loop
+    let default_index_metadata = PageMetadata::default();
+    
+    // Regex is initialized once outside the loop
+    let json_regex = Regex::new(r"(?s)```json\s*(\{.*?\})\s*```\s*(\s*)$").unwrap();
 
     for rel_dir_path in sorted_dirs {
         let index_md_path = rel_dir_path.join("index.md");
         let path_target_dir = args.target.join(&rel_dir_path);
         let path_target = path_target_dir.join("index.html");
 
-        let (title, content) = if site_map.contains(&index_md_path) {
+        // Check if an index.md exists and get its metadata
+        let has_index_md = site_map.contains(&index_md_path);
+        // Use the reference to the persistent default value
+        let index_metadata = metadata_map.get(&index_md_path).unwrap_or(&default_index_metadata);
+
+        // Check for avoidance flag
+        if has_index_md && index_metadata.avoid_generation.unwrap_or(false) {
+            if args.verbose {
+                print_info(&format!("Skipped (Avoid Generation): {}", index_md_path.display()));
+            }
+            continue;
+        }
+
+        let (title, content) = if has_index_md {
             let path_source = args.source.join(&index_md_path);
             let markdown_input = fs::read_to_string(&path_source)?;
-            let parser = Parser::new(&markdown_input);
-            let (html_output, title) = process_markdown_events(args, site_map, parser, &index_md_path);
-            (title, html_output)
+            
+            // Temporary stripping for parser only
+            let content_without_json = json_regex.replace_all(&markdown_input, |caps: &regex::Captures| {
+                caps.get(2).map_or("", |m| m.as_str()).to_string()
+            }).to_string();
+
+            let parser = Parser::new(&content_without_json);
+            let (html_output, title_from_h1) = process_markdown_events(args, site_map, parser, &index_md_path);
+            
+            // Use metadata override for the title
+            let final_title = index_metadata.page_title.as_ref().unwrap_or(&title_from_h1).clone();
+            (final_title, html_output)
         } else {
-            let title = if rel_dir_path.as_os_str().is_empty() {
+            let default_title = if rel_dir_path.as_os_str().is_empty() {
                 "Root Index".to_string()
             } else {
                 rel_dir_path.to_string_lossy().to_string()
             };
-            ("Index: ".to_string() + &title, String::new())
+            ("Index: ".to_string() + &default_title, String::new())
         };
 
-        let (source_path_display, source_path_real) = if site_map.contains(&index_md_path) {
-            (index_md_path.to_string_lossy().into_owned(), args.source.join(&index_md_path))
+        // ----------------------------------------------------------------
+        // FIX: Ensure source_path_display starts with a leading slash (/)
+        // ----------------------------------------------------------------
+        
+        let source_path_rel_str = if has_index_md {
+            index_md_path.to_string_lossy().into_owned()
         } else {
-            (rel_dir_path.to_string_lossy().into_owned(), args.source.join(&rel_dir_path))
+            rel_dir_path.to_string_lossy().into_owned()
         };
         
-        let nav_rel_path = if site_map.contains(&index_md_path) {
+        let source_path_display = if source_path_rel_str.is_empty() {
+            // Case 1: Root directory path (e.g., "" becomes "/")
+            "/".to_string()
+        } else {
+            // Case 2: Any other path (e.g., "docs/file.md" becomes "/docs/file.md")
+            format!("/{}", source_path_rel_str)
+        };
+
+        let source_path_real = if has_index_md {
+            args.source.join(&index_md_path)
+        } else {
+            args.source.join(&rel_dir_path)
+        };
+        
+        // ----------------------------------------------------------------
+        
+        let nav_rel_path = if has_index_md {
             index_md_path.clone()
         } else {
             rel_dir_path.join("index.md") 
         };
         
-        let nav_html = generate_navigation_html(args, site_map, &nav_rel_path);
+        // Pass metadata_map to navigation generation
+        let nav_html = generate_navigation_html(args, site_map, metadata_map, &nav_rel_path);
         
         let last_modified = get_last_modified_date(&source_path_real);
         let default_content = if content.is_empty() {
@@ -213,7 +286,7 @@ pub fn generate_all_index_files(args: &Args, site_map: &SiteMap, html_template: 
 
         let final_html = format_html_page(
             &title, 
-            &source_path_display,
+            &source_path_display, // <-- Now prefixed with '/'
             &last_modified,
             &nav_html, 
             &default_content, 

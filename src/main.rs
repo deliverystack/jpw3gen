@@ -1,4 +1,4 @@
-use std::{fs};
+use std::{fs}; 
 
 mod config;
 mod args;
@@ -11,7 +11,7 @@ use config::Args;
 use args::parse_args;
 use io::{read_template, print_info, print_error};
 use site_map::build_site_map;
-use processing::process_directory;
+use processing::{process_directory, load_all_metadata_from_files}; // load_all_metadata_from_files is now correctly imported
 use nav::generate_all_index_files;
 
 fn main() -> std::io::Result<()> {
@@ -48,9 +48,13 @@ fn main() -> std::io::Result<()> {
         print_info(&format!("Identified {} files for processing.", site_map.len()));
     }
     
-    process_directory(&args, &site_map, &args.source, &html_template)?;
+    // NEW: Load all metadata before processing any files
+    let metadata_map = load_all_metadata_from_files(&args, &site_map)?;
+
+    // FIX: Pass the metadata_map to the processing and index generation functions
+    process_directory(&args, &site_map, &metadata_map, &args.source, &html_template)?;
     
-    generate_all_index_files(&args, &site_map, &html_template)?;
+    generate_all_index_files(&args, &site_map, &metadata_map, &html_template)?;
 
     println!("Done processing directories.");
     Ok(())

@@ -1,13 +1,35 @@
-use std::{fs, io, path::{Path, PathBuf}, mem};
+use std::{fs, io, path::{Path, PathBuf}, mem, collections::BTreeMap}; 
 use pulldown_cmark::{Parser, Options, Event, Tag, HeadingLevel, LinkType};
 use chrono::{DateTime, Utc};
-
+use serde_json; 
 use regex::Regex;
-use crate::config::{Args, SiteMap};
+use crate::config::{Args, SiteMap, PageMetadata, MetadataMap}; 
 use crate::io::{print_info, print_warning, print_error};
 use crate::nav::generate_navigation_html;
 
-pub fn process_directory(args: &Args, site_map: &SiteMap, current_dir_source: &Path, html_template: &str) -> io::Result<()> {
+// NEW FUNCTION: Loads and parses metadata from all markdown files.
+pub fn load_all_metadata_from_files(args: &Args, site_map: &SiteMap) -> io::Result<MetadataMap> {
+    let mut metadata_map = BTreeMap::new();
+    let json_regex = Regex::new(r"(?s)```json\s*(\{.*?\})\s*```\s*(\s*)$").unwrap();
+
+    for rel_path in site_map.iter().filter(|p| p.extension().map_or(false, |ext| ext == "md")) {
+        let path_source = args.source.join(rel_path);
+        let markdown_input = fs::read_to_string(&path_source)?;
+        let mut metadata = PageMetadata::default();
+
+        if let Some(caps) = json_regex.captures(&markdown_input) {
+            let json_str = &caps[1];
+            match serde_json::from_str::<PageMetadata>(json_str) {
+                Ok(parsed_meta) => metadata = parsed_meta,
+                Err(e) => print_error(&format!("Failed to parse metadata in {}: {}", rel_path.display(), e)),
+            }
+        }
+        metadata_map.insert(rel_path.clone(), metadata);
+    }
+    Ok(metadata_map)
+}
+
+pub fn process_directory(args: &Args, site_map: &SiteMap, metadata_map: &MetadataMap, current_dir_source: &Path, html_template: &str) -> io::Result<()> {
     let current_dir_rel = current_dir_source.strip_prefix(&args.source).unwrap_or(Path::new(""));
     let current_dir_target = args.target.join(current_dir_rel);
 
@@ -19,25 +41,24 @@ pub fn process_directory(args: &Args, site_map: &SiteMap, current_dir_source: &P
 
         if path_source.is_dir() {
             if let Some(name) = path_source.file_name().and_then(|s| s.to_str()) {
-                // CHANGE: Add check for "scraps" here
                 if name.starts_with('.') || name == "scraps" {
                     continue;
                 }
             }
-            process_directory(args, site_map, &path_source, html_template)?;
+            process_directory(args, site_map, metadata_map, &path_source, html_template)?;
         } else if path_source.is_file() {
             let file_name = path_source.file_name().unwrap_or_default();
             let path_target = current_dir_target.join(file_name);
             
             let rel_path = path_source.strip_prefix(&args.source).unwrap_or(Path::new(""));
             
-            // CHANGE: Skip README.md if it is in the source root
             if rel_path.as_os_str().to_string_lossy() == "README.md" {
                 continue;
             }
 
             if rel_path.extension().map_or(false, |ext| ext == "md") {
-                markdown_to_html(args, site_map, &path_source, &path_target, rel_path, html_template)?;
+                let metadata = metadata_map.get(rel_path).expect("Metadata should exist for every markdown file in site_map");
+                markdown_to_html(args, site_map, metadata, &path_source, &path_target, rel_path, html_template, metadata_map)?;
             } else {
                 smart_copy_file(args, &path_source, &path_target, rel_path)?;
             }
@@ -71,8 +92,10 @@ pub fn smart_copy_file(args: &Args, path_source: &Path, path_target: &Path, rel_
     Ok(())
 }
 
-pub fn markdown_to_html(args: &Args, site_map: &SiteMap, path_source: &Path, path_target: &Path, path_rel: &Path, html_template: &str) -> io::Result<()> {
+pub fn markdown_to_html(args: &Args, site_map: &SiteMap, metadata: &PageMetadata, path_source: &Path, path_target: &Path, path_rel: &Path, html_template: &str, metadata_map: &MetadataMap) -> io::Result<()> {
     let control_char_regex = Regex::new(r"[\p{Cc}\p{Cf}&&[^\n\t\r]]").unwrap();
+    let json_regex = Regex::new(r"(?s)```json\s*(\{.*?\})\s*```\s*(\s*)$").unwrap();
+    let todo_regex = Regex::new(r"^(?P<prefix>[\s*>\-\+]*)(TODO:?\s*)(?P<text>.*)$").unwrap();
 
     let markdown_input = match fs::read_to_string(path_source) {
         Ok(c) => c,
@@ -82,19 +105,23 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, path_source: &Path, pat
         }
     };
     
-    // 1. CLEANING & DASH CONVERSION
-    let cleaned_content_stage_1: String = control_char_regex.replace_all(&markdown_input, "")
+    // Use this mutable variable for all structural cleaning and normalization.
+    let mut content_to_normalize = markdown_input.clone();
+
+    // 1. CLEANING & DASH CONVERSION 
+    content_to_normalize = control_char_regex.replace_all(&content_to_normalize, "")
         .to_string()
-        .replace('\r', "")      // Normalize to Unix line endings
-        .replace('\u{2011}', "-") // Non-Breaking Hyphen -> standard hyphen
-        .replace('\u{2013}', "-") // En Dash -> standard hyphen
-        .replace('\u{2014}', "--") // Em Dash -> two standard hyphens
-        .replace('\u{00A0}', " "); // Non-breaking space to standard space
+        .replace('\r', "")      
+        .replace('\u{2011}', "-") 
+        .replace('\u{2013}', "-") 
+        .replace('\u{2014}', "--") 
+        .replace('\u{00A0}', " "); 
 
     // 2. C-COMMENT CONVERSION
-    let lines_to_convert: Vec<String> = cleaned_content_stage_1.lines()
+    let lines_to_convert: Vec<String> = content_to_normalize.lines()
         .map(|line| {
-            if line.trim_start().starts_with("//") {
+            // Ensure we don't accidentally comment out the JSON block
+            if !line.contains("```json") && !line.contains("```") && line.trim_start().starts_with("//") {
                 let comment_text = line.trim_start().trim_start_matches('/');
                 format!("{}", comment_text) 
             } else {
@@ -103,24 +130,35 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, path_source: &Path, pat
         })
         .collect();
     
-    let content_with_converted_comments = lines_to_convert.join("\n");
+    content_to_normalize = lines_to_convert.join("\n");
     
-    let mut final_content = content_with_converted_comments.clone();
+    // 3. TODO FORMATTING
+    let lines_with_todo: Vec<String> = content_to_normalize.lines()
+        .map(|line| {
+            if todo_regex.is_match(line) {
+                 todo_regex.replace(line, "$prefix***//TODO: $text***").to_string()
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+    
+    content_to_normalize = lines_with_todo.join("\n");
 
-    // 3. ENSURE LEADING NEWLINE
-    let starts_with_whitespace = final_content.chars().next().map_or(true, char::is_whitespace);
+
+    // 4. ENSURE LEADING NEWLINE
+    let starts_with_whitespace = content_to_normalize.chars().next().map_or(true, char::is_whitespace);
     
-    let original_normalized_for_comparison: String = content_with_converted_comments; 
-    let mut content_was_structurally_modified = final_content != original_normalized_for_comparison;
+    let mut content_was_structurally_modified = content_to_normalize != markdown_input;
 
     if !starts_with_whitespace {
-        final_content.insert(0, '\n');
+        content_to_normalize.insert(0, '\n');
         content_was_structurally_modified = true; 
     }
 
-    // 5. OVERWRITE FILE IF MODIFIED
+    // 5. OVERWRITE FILE IF MODIFIED (Saves the normalized content, including JSON)
     if content_was_structurally_modified {
-        fs::write(path_source, &final_content)?;
+        fs::write(path_source, &content_to_normalize)?;
         print_warning(&format!("Corrected source file: {}", path_source.display()));
         if !starts_with_whitespace {
              print_warning(&format!("File {} did not start with whitespace. Prepended a blank line.", path_rel.display()));
@@ -129,11 +167,23 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, path_source: &Path, pat
         print_info(&format!("Source file requires no modification: {}", path_source.display()));
     }
     
-    // 6. LINK CHECKING
+    // 6. JSON METADATA STRIPPING FOR PARSER ONLY (Controlled by metadata flag)
+    let content_for_parser = if metadata.keep_json_in_content.unwrap_or(false) {
+        // If flag is true, use the normalized content which includes the JSON block.
+        content_to_normalize.clone()
+    } else {
+        // If flag is false or missing, strip the JSON block from the content passed to the parser.
+        json_regex.replace_all(&content_to_normalize, |caps: &regex::Captures| {
+            caps.get(2).map_or("", |m| m.as_str()).to_string()
+        }).to_string()
+    };
+
+
+    // 7. LINK CHECKING (Unchanged)
     let link_regex = Regex::new(r"\[[^\]]+\]\(([^)]+\.md)\)").unwrap();
     let parent_dir = path_source.parent().unwrap_or_else(|| Path::new(""));
 
-    for caps in link_regex.captures_iter(&final_content) {
+    for caps in link_regex.captures_iter(&content_to_normalize) {
         let link_target = &caps[1];
         let target_path = parent_dir.join(link_target);
 
@@ -141,10 +191,10 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, path_source: &Path, pat
             print_warning(&format!("Broken link detected in {}: Link to non-existent file '{}'", path_rel.display(), link_target));
         }
     }
-
+    
     let image_link_regex = Regex::new(r"!\[[^\]]*\]\(([^)]+\.(png|jpe?g|gif|svg))\)").unwrap();
 
-    for caps in image_link_regex.captures_iter(&final_content) {
+    for caps in image_link_regex.captures_iter(&content_to_normalize) {
         let link_target = &caps[1]; 
         let target_path = parent_dir.join(link_target);
 
@@ -153,25 +203,43 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, path_source: &Path, pat
         }
     }
 
-    // 7. RENDER MARKDOWN TO HTML
+
+    // 8. RENDER MARKDOWN TO HTML (Uses the stripped/conditional content_for_parser)
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TASKLISTS);
     options.insert(Options::ENABLE_FOOTNOTES);
     
-    let parser = Parser::new_ext(&final_content, options); 
+    let parser = Parser::new_ext(&content_for_parser, options); 
     
-    let (html_output_content, title) = process_markdown_events(args, site_map, parser, path_rel);
+    let (html_output_content, title_from_h1) = process_markdown_events(args, site_map, parser, path_rel);
+
+    // Use metadata override for the title
+    let title = metadata.page_title.as_ref().unwrap_or(&title_from_h1).clone();
 
     let mut path_target_html = path_target.to_path_buf();
     path_target_html.set_extension("html");
     
-    let nav_html = generate_navigation_html(args, site_map, path_rel);
+    // Pass the entire metadata_map to navigation generation
+    let nav_html = generate_navigation_html(args, site_map, metadata_map, path_rel);
     
     let last_modified_time = get_last_modified_date(path_source);
-    let rel_path_str = path_rel.to_string_lossy().into_owned(); 
+    
+    // ----------------------------------------------------------------
+    // FIX: Ensure rel_path_str (for {{ source_path }}) starts with a leading slash (/)
+    let rel_path_str = {
+        let path_str = path_rel.to_string_lossy();
+        if path_str.starts_with('/') {
+            path_str.into_owned()
+        } else {
+            format!("/{}", path_str)
+        }
+    };
+    // ----------------------------------------------------------------
 
+
+    // Use the potentially overridden title
     let final_html = format_html_page(&title, &rel_path_str, &last_modified_time, &nav_html, &html_output_content, html_template);
     
     if path_target_html.exists() {

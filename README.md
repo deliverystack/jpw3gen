@@ -3,6 +3,8 @@
 
 This program iterates all of the files and subdirectories in a source directory, replicating them to a target directory, converting markdown (`.md`) files to HTML files, and generating an index.html file in each subdirectory.
 
+- http://localhost:8000/articles/2025/December/static-site.html
+
 ## Manual Process Before Use
 
 This process depends on two files in the source directory. You can copy these from this project.
@@ -70,13 +72,12 @@ Browse to:
 
 ## Outstanding Issues
 
-- Add the file indicator to markdown if none is present.
-- Fixed? URLs in markdowns that aren't links should be converted to links.
-- Nav tree isn't indenting nested links or using elipses properly.
 - Open external URLs in new tabs.
-- Don't replicate /styles.css or /template.html or /README.md
-- Start file with ## isn't recognized as heading
-- Put file path in .md and .html and modification datestamp at end of HTML file
-- Apply ideas from https://github.com/deliverystack/wink/blob/main/wince to jwbnr.sh
+- Apply ideas from https://github.com/deliverystack/wink/blob/main/wince to jpw3gen.sh
 - Documentation including features
 - Refactoring, cleanup, and comment code
+- Nav has issues.
+- Comment rust code.
+- Document features (possibly using ChatGPT conversation?).
+- Report links to deliverystack for update.
+

@@ -3,11 +3,12 @@ use clap::{Arg, Command};
 use crate::config::Args;
 use crate::io::print_error;
 
+/// parse command line arguments
 pub fn parse_args() -> Args {
     let matches = Command::new("Directory Copier")
         .version("1.0")
-        .author("Your Name <your-email@example.com>")
-        .about("A program that copies directory structure with markdown to HTML conversion.")
+        .author("John West <github-public@c73.me>")
+        .about("Create a static website from a directory structure containing markdown files.")
         .arg(
             Arg::new("source")
                 .short('s') 

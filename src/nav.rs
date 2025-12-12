@@ -11,15 +11,11 @@ use crate::io::{collect_all_dirs_robust, print_error, print_info};
 use crate::processing::{rewrite_link_to_relative, process_markdown_events, format_html_page, get_last_modified_date}; 
 
 pub fn generate_navigation_html(args: &Args, site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_path: &Path) -> String { 
-    // Build the nested tree structure from the flat site_map
     let nav_tree = build_nav_tree(site_map, metadata_map, current_rel_path);
-
-    // Recursively convert the tree to nested HTML
     nav_tree_to_html(&nav_tree, current_rel_path, site_map, args, true)
 }
 
 fn build_nav_tree(site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_path: &Path) -> NavItem {
-    // The key here will be the composite sort key (sort_key/nav_title + unique path)
     let mut root_children: NavTree = BTreeMap::new();
     let current_html_path = current_rel_path.with_extension("html");
     
@@ -38,11 +34,13 @@ fn build_nav_tree(site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_pa
         }
 
         // Exclude specific files and directories
+        //TODO: use JSON in index.md in these directories instead
         if rel_path.file_name().map_or(false, |n| n == "template.html" || n == "styles.css") ||
            rel_path.starts_with("scraps") || rel_path.starts_with("life-story") {
             continue;
         }
 
+        //TODO: use JSON in readme instead
         let is_root_readme = rel_path.file_name().map_or(false, |n| n == "README.md")
             && rel_path.parent().map_or(true, |p| p.as_os_str().is_empty());
         
@@ -74,7 +72,6 @@ fn build_nav_tree(site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_pa
         let primary_sort_key = metadata.sort_key.as_ref().map(|s| s.to_string())
             .unwrap_or_else(|| file_name.clone());
 
-        // CRITICAL FIX: Convert the primary sort key to lowercase for case-insensitive ordering.
         let final_sort_key_for_map = primary_sort_key.to_lowercase(); 
 
         // Create a unique, composite key: [sort_key OR display_name]--[unique_path]

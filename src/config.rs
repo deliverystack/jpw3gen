@@ -4,6 +4,7 @@ use std::{
 };
 use serde::{Deserialize, Serialize}; // Added imports
 
+// Metadata for a page (file) extracted from an optional JSON block at the end of markdown files
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct PageMetadata {
     pub page_title: Option<String>,
@@ -11,12 +12,12 @@ pub struct PageMetadata {
     pub avoid_generation: Option<bool>,
     pub exclude_from_nav: Option<bool>,
     pub keep_json_in_content: Option<bool>,
-    // NEW FIELD: Used to control the order in which items appear in navigation.
     pub sort_key: Option<String>, 
 }
 
 pub type MetadataMap = BTreeMap<PathBuf, PageMetadata>;
 
+// An element to appear in site navigation
 #[derive(Debug, Clone)]
 pub enum NavItem {
     File {
@@ -46,6 +47,8 @@ impl NavItem {
     }
 }
 
+
+// Parsed from command line arguments
 #[derive(Debug)]
 pub struct Args {
     pub source: PathBuf,
@@ -58,6 +61,7 @@ pub type NavTree = BTreeMap<String, NavItem>;
 /// A global map of all files to easily check for links.
 pub type SiteMap = HashSet<PathBuf>;
 
+// for coloring console output
 pub const COLOR_RED: &str = "\x1b[31m";    
 pub const COLOR_YELLOW: &str = "\x1b[33m"; 
 pub const COLOR_CYAN: &str = "\x1b[36m";

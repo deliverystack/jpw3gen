@@ -267,6 +267,7 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, metadata: &PageMetadata
     Ok(())
 }
 
+//TODO: What does this do
 pub fn process_markdown_events<'a>(
     args: &Args, 
     site_map: &SiteMap,
@@ -380,12 +381,14 @@ pub fn process_markdown_events<'a>(
     (final_content, final_title)
 }
 
+//TODO: What does this do
 pub fn events_to_html(events: Vec<Event>) -> String {
     let mut html_output = String::new();
     pulldown_cmark::html::push_html(&mut html_output, events.into_iter());
     html_output
 }
 
+//TODO: What does this do
 pub fn resolve_link_path(from_path_rel: &Path, link_target: &Path) -> PathBuf {
     if link_target.to_string_lossy().starts_with('/') {
         return link_target.to_path_buf();
@@ -405,6 +408,7 @@ pub fn resolve_link_path(from_path_rel: &Path, link_target: &Path) -> PathBuf {
     PathBuf::from("/").join(components.iter().collect::<PathBuf>())
 }
 
+//TODO: What does this do
 pub fn rewrite_link_to_relative(from_path_rel: &Path, link_target: &Path, site_map: &SiteMap, verbose: bool) -> String {
     let root_rel_path = resolve_link_path(from_path_rel, link_target);
     let target_path_rel = root_rel_path.strip_prefix("/").unwrap_or(Path::new(""));
@@ -429,6 +433,7 @@ pub fn rewrite_link_to_relative(from_path_rel: &Path, link_target: &Path, site_m
     rel_path_str.to_string()
 }
 
+/// Replace tokens in the HTML with values
 pub fn format_html_page(title: &str, rel_path_str: &str, last_modified_time: &str, nav_html: &str, content: &str, html_template: &str) -> String {
     html_template
         .replace("{{ title }}", title)
@@ -439,6 +444,7 @@ pub fn format_html_page(title: &str, rel_path_str: &str, last_modified_time: &st
         .replace("{{ content }}", content)
 }
 
+/// Retrieve the last modification date for the specified file.
 pub fn get_last_modified_date(path: &Path) -> String {
     let metadata = match fs::metadata(path) {
         Ok(m) => m,

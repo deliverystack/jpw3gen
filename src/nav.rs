@@ -19,9 +19,11 @@ pub fn generate_navigation_html(args: &Args, site_map: &SiteMap, metadata_map: &
 }
 
 fn build_nav_tree(site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_path: &Path) -> NavItem {
+    // The key here will be the composite sort key (sort_key/nav_title + unique path)
     let mut root_children: NavTree = BTreeMap::new();
     let current_html_path = current_rel_path.with_extension("html");
     
+    // Initial sort ensures consistent starting order for paths without explicit metadata
     let mut sorted_paths: Vec<PathBuf> = site_map.iter().cloned().collect();
     sorted_paths.sort(); 
 
@@ -29,20 +31,15 @@ fn build_nav_tree(site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_pa
     let default_metadata = PageMetadata::default();
 
     for rel_path in sorted_paths {
-        // Use the reference to the persistent default value if metadata is missing
         let metadata = metadata_map.get(&rel_path).unwrap_or(&default_metadata);
 
         if metadata.exclude_from_nav.unwrap_or(false) {
             continue;
         }
 
-        // Exclude specific files
-        if rel_path.file_name().map_or(false, |n| n == "template.html" || n == "styles.css") {
-            continue;
-        }
-
-        // Exclude hardcoded directories
-        if rel_path.starts_with("scraps") || rel_path.starts_with("life-story") {
+        // Exclude specific files and directories
+        if rel_path.file_name().map_or(false, |n| n == "template.html" || n == "styles.css") ||
+           rel_path.starts_with("scraps") || rel_path.starts_with("life-story") {
             continue;
         }
 
@@ -63,29 +60,37 @@ fn build_nav_tree(site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_pa
 
         if components.is_empty() { continue; }
         
-        // 1. Determine the display name (nav_title has highest priority)
+        // 1. Determine the display name (used for rendering)
         let file_name = if let Some(title) = metadata.nav_title.clone() {
-            // Priority 1: Use the explicit nav_title from metadata
             title
         } else {
-            // Priority 2: Fallback to the file stem (name without extension)
             rel_path.file_stem()
                 .and_then(|stem| stem.to_str())
                 .map(|s| s.to_string())
-                // Final fallback if all else fails (uses full component, e.g., "page.md")
                 .unwrap_or_else(|| components.last().unwrap().clone())
         };
+        
+        // 2. Determine the insertion key (used for sorting)
+        let primary_sort_key = metadata.sort_key.as_ref().map(|s| s.to_string())
+            .unwrap_or_else(|| file_name.clone());
+
+        // CRITICAL FIX: Convert the primary sort key to lowercase for case-insensitive ordering.
+        let final_sort_key_for_map = primary_sort_key.to_lowercase(); 
+
+        // Create a unique, composite key: [sort_key OR display_name]--[unique_path]
+        // The unique path remains case-sensitive for a truly stable tie-breaker.
+        let insertion_key = format!("{}--{}", final_sort_key_for_map, rel_path.to_string_lossy());
         
         // Start traversal from the root map
         let mut current_map = &mut root_children;
         let mut path_builder = PathBuf::new();
 
-        // Iterate through all components except the last one (which is the file)
+        // Iterate through all components except the last one (the file)
         for i in 0..components.len() - 1 {
             let dir_name = &components[i];
             path_builder.push(dir_name);
 
-            // Get or create the Directory item
+            // Get or create the Directory item. Directory keys are still their names for simplicity
             let entry = current_map.entry(dir_name.clone()).or_insert_with(|| {
                  NavItem::Directory {
                      rel_path: path_builder.clone(),
@@ -98,11 +103,11 @@ fn build_nav_tree(site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_pa
             current_map = entry.get_children_mut().expect("Item should be a directory");
         }
 
-        // Insert the File item into the current map. The key and the 'name' field are set to file_name.
+        // 3. Insert the File item using the composite insertion_key
         let is_current = rel_path.with_extension("html") == current_html_path;
-        current_map.insert(file_name.clone(), NavItem::File {
+        current_map.insert(insertion_key, NavItem::File {
             rel_path: rel_path.clone(),
-            name: file_name, // <-- This is the value that is displayed in nav_tree_to_html
+            name: file_name, // <-- This is the value that is displayed
             is_current,
         });
     }
@@ -155,6 +160,7 @@ fn nav_tree_to_html(nav_item: &NavItem, current_rel_path: &Path, site_map: &Site
 
             // Process Directories first
             let mut has_directories = false;
+            // Iterate over children, which are already sorted by the BTreeMap key (the composite sort key)
             for (_, child) in children.iter() {
                 if let NavItem::Directory { .. } = child {
                     html.push_str(&nav_tree_to_html(child, current_rel_path, site_map, args, false));
@@ -242,10 +248,7 @@ pub fn generate_all_index_files(args: &Args, site_map: &SiteMap, metadata_map: &
             ("Index: ".to_string() + &default_title, String::new())
         };
 
-        // ----------------------------------------------------------------
-        // FIX: Ensure source_path_display starts with a leading slash (/)
-        // ----------------------------------------------------------------
-        
+        // Ensure source_path_display starts with a leading slash (/)
         let source_path_rel_str = if has_index_md {
             index_md_path.to_string_lossy().into_owned()
         } else {
@@ -266,8 +269,7 @@ pub fn generate_all_index_files(args: &Args, site_map: &SiteMap, metadata_map: &
             args.source.join(&rel_dir_path)
         };
         
-        // ----------------------------------------------------------------
-        
+        // Use the index.md path for navigation context if it exists, otherwise a synthetic path
         let nav_rel_path = if has_index_md {
             index_md_path.clone()
         } else {
@@ -286,7 +288,7 @@ pub fn generate_all_index_files(args: &Args, site_map: &SiteMap, metadata_map: &
 
         let final_html = format_html_page(
             &title, 
-            &source_path_display, // <-- Now prefixed with '/'
+            &source_path_display, 
             &last_modified,
             &nav_html, 
             &default_content, 

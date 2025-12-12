@@ -10,8 +10,9 @@ pub struct PageMetadata {
     pub nav_title: Option<String>,
     pub avoid_generation: Option<bool>,
     pub exclude_from_nav: Option<bool>,
-    // NEW FIELD: If true, the JSON block is kept and rendered in the HTML.
-    pub keep_json_in_content: Option<bool>, 
+    pub keep_json_in_content: Option<bool>,
+    // NEW FIELD: Used to control the order in which items appear in navigation.
+    pub sort_key: Option<String>, 
 }
 
 pub type MetadataMap = BTreeMap<PathBuf, PageMetadata>;

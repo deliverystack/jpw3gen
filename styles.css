@@ -1,25 +1,44 @@
+/*
+ * ====================================================================
+ * A. FONT AND TYPOGRAPHY (System Font Stacks - NO WEB FONTS REQUIRED)
+ * ====================================================================
+ */
+
+/* 1. Default Font Family (Uses the OS's native clean UI font) */
 body {
-  font-family: "Roboto", sans-serif !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif !important;
   font-size: 16px !important; 
-  line-height: 1.6 !important; /* Improved readability for long-form text */
+  line-height: 1.6 !important; 
 }
 
+/* 2. Technical Font Family for Code Blocks and Inline Code (System Monospace) */
 pre, code {
-  font-family: "Fira Code", monospace !important;
-  font-size: 0.95em !important; /* Slightly smaller than body text for visual distinction */
-  font-variant-ligatures: common-ligatures !important; /* Enables ligatures like !=, === (optional) */
+  font-family: SFMono-Regular, Consolas, Menlo, Monaco, 'Courier New', monospace !important;
+  font-size: 0.95em !important; 
 }
 
+/* 3. Visual Styling and Wrapping for Block Code (<pre>) */
 pre {
+  /* Visual Styling */
   background-color: #f4f4f4 !important; /* Light gray background */
   padding: 15px !important; 
   border-radius: 5px !important; 
   overflow-x: auto !important; /* Ensures horizontal scrolling for long lines */
-  white-space: pre-wrap !important; /* Ensures the browser respects newlines */
-  word-wrap: break-word !important; /* For older browsers */
-  overflow-wrap: break-word !important; /* Standard property for breaking */
-  word-break: break-all !important; /* Forces breaking of long strings (like URLs) */
+
+  /* Text Wrapping (Consolidated from original main pre block) */
+  white-space: pre-wrap !important; 
+  word-wrap: break-word !important; 
+  overflow-wrap: break-word !important; 
+  word-break: break-all !important; 
 }
+
+
+/*
+ * ====================================================================
+ * B. BASE SETUP AND GRID DEFINITION (MAXIMUM PRIORITY)
+ * (No changes from original)
+ * ====================================================================
+ */
 
 #page-layout {
   grid-template-columns: max-content 1fr !important;
@@ -28,13 +47,22 @@ pre {
   grid-template-areas: 
     "header header"
     "nav main"
-    "footer footer" !important; /* Force area mapping */
+    "footer footer" !important; 
+
   gap: 20px !important; 
   min-height: 100vh !important; 
   margin: 0 auto !important;    
   max-width: 1400px !important; 
+  
   border: 1px solid black !important;
 }
+
+/*
+ * ====================================================================
+ * C. PLACEMENT AND VISIBILITY STYLES
+ * (No changes from original)
+ * ====================================================================
+ */
 
 header {
   grid-area: header !important;
@@ -44,7 +72,7 @@ header {
 }
 
 main {
-  grid-area: main !important; /* Center Content */
+  grid-area: main !important; 
   background: white !important;
   padding: 20px !important;
 }
@@ -63,12 +91,18 @@ footer {
 }
 
 nav {
-  grid-area: nav !important; /* Left Column */
+  grid-area: nav !important; 
   background: #ecf0f1 !important;
-  /* 👈 FIX: Remove left padding so lists start at the edge */
-  padding: 20px 20px 20px 0 !important; /* Desktop/Sidebar Padding */
+  padding: 20px 20px 20px 0 !important; 
   min-height: 200px !important; 
 }
+
+/*
+ * ====================================================================
+ * D. NAVIGATION LIST STYLES (Indentation Fix)
+ * (No changes from original)
+ * ====================================================================
+ */
 
 nav ul {
   list-style-type: none !important; 
@@ -109,13 +143,20 @@ nav li.current-file {
     display: inline-block !important; 
 }
 
+/*
+ * ====================================================================
+ * E. MEDIA QUERIES (Mobile Layout)
+ * (No changes from original)
+ * ====================================================================
+ */
+
 @media (max-width: 768px) {
   #page-layout { 
     grid-template-areas: 
       "header"
       "nav"
       "main"
-      "footer" !important; /* Removed "aside" */
+      "footer" !important; 
 
     grid-template-columns: 1fr !important;
     grid-template-rows: auto !important; 
@@ -127,7 +168,22 @@ nav li.current-file {
   }
 }
 
+/*
+ * ====================================================================
+ * F. MISCELLANEOUS
+ * (No changes from original)
+ * ====================================================================
+ */
+
 th {
   text-align: left !important;
   vertical-align: top !important; 
+}
+
+main img {
+  max-width: 600px !important; /* The !important is needed here to beat any conflicting rules in your existing stylesheet */
+  height: auto !important;
+  display: block !important; /* Required for margin: auto to work */
+  margin-left: auto !important;
+  margin-right: auto !important;
 }

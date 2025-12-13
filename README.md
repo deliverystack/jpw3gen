@@ -81,6 +81,9 @@ Browse to:
 - Document features (possibly using ChatGPT conversation?).
 - Report links to deliverystack for update.
 - It seems to ignore index.md in directories, for example "exclude_from_nav": true. Maybe index shouldn't appear in nav.
+- Generate Sitemap.xml and optionally robots.txt (using JSON)
+- --debug N for verbosity level
+- In https://www.jpw3.com/articles/2025/December/my-ego.html does not match entire URL https://en.wikipedia.org/wiki/Shadow_(psychology)
 
 ```
 

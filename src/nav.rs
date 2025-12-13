@@ -348,7 +348,7 @@ pub fn generate_all_index_files(args: &Args, site_map: &SiteMap, metadata_map: &
         
         let last_modified = get_last_modified_date(&source_path_real);
         let default_content = if content.is_empty() {
-            format!("<h1>{}</h1><p>No <code>index.md</code> file found. Displaying directory index.</p>", title)
+            format!("<h1>{}</h1><p>Use the links on the left to access content.</p>", title)
         } else {
             content
         };

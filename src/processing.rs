@@ -39,6 +39,7 @@ pub fn process_directory(args: &Args, site_map: &SiteMap, metadata_map: &Metadat
         let entry = entry?;
         let path_source = entry.path();
 
+        //TODO: this should be checking the JSON in the file or in index.md of the directory rather than hard-coding
         if path_source.is_dir() {
             if let Some(name) = path_source.file_name().and_then(|s| s.to_str()) {
                 if name.starts_with('.') || name == "scraps" {
@@ -66,7 +67,6 @@ pub fn process_directory(args: &Args, site_map: &SiteMap, metadata_map: &Metadat
     }
     Ok(())
 }
-
 
 pub fn smart_copy_file(args: &Args, path_source: &Path, path_target: &Path, rel_path: &Path) -> io::Result<()> {
     if path_target.exists() {

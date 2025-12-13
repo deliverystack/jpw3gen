@@ -267,7 +267,6 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, metadata: &PageMetadata
     Ok(())
 }
 
-//TODO: What does this do
 pub fn process_markdown_events<'a>(
     args: &Args, 
     site_map: &SiteMap,
@@ -283,6 +282,9 @@ pub fn process_markdown_events<'a>(
     let mut _current_heading_level: Option<HeadingLevel> = None; 
     let mut current_heading_id: Option<String> = None;
     let mut current_heading_classes: Option<Vec<String>> = None; 
+    
+    // NEW: Link tracking flag to prevent auto-linking inside existing markdown links
+    let mut in_link = false; 
 
     for event in parser {
         match event {
@@ -323,6 +325,12 @@ pub fn process_markdown_events<'a>(
                     title_h1.push_str(&text);
                 } 
                 
+                // FIX 1: If inside an existing link, skip custom auto-linking logic.
+                if in_link {
+                    events.push(Event::Text(text));
+                    continue; 
+                }
+
                 let text_str = text.to_string();
                 let mut current_pos = 0;
                 let mut found_link = false;
@@ -332,11 +340,48 @@ pub fn process_markdown_events<'a>(
                     if start_index > 0 {
                         events.push(Event::Text(text_str[..start_index].to_string().into()));
                     }
-                    let end_index = text_str[start_index..]
-                        .find(|c: char| c.is_whitespace() || c == ')' || c == ']')
-                        .map(|i| i + start_index)
-                        .unwrap_or(text_str.len());
+                    
+                    let slice_to_search = &text_str[start_index..];
+                    let mut end_offset;
 
+                    // Step 1: Find the initial termination point (whitespace or markdown bracket)
+                    if let Some(found_index) = slice_to_search
+                        .find(|c: char| c.is_whitespace() || c == ']')
+                    {
+                        end_offset = found_index;
+                    } else {
+                        end_offset = slice_to_search.len();
+                    }
+
+                    // Step 2: Trim trailing punctuation (.,) and closing parenthesis
+                    
+                    // Check for trailing ')'
+                    if end_offset > 0 && slice_to_search.chars().nth(end_offset.saturating_sub(1)) == Some(')') {
+                        // Check the character *before* the potential trailing ')'
+                        let char_before_paren = slice_to_search.chars().nth(end_offset.saturating_sub(2));
+                        
+                        // If the ')' is not part of a valid sub-path (e.g. not preceded by '/') 
+                        // and not part of an explicitly closed group of parentheses (like '...)))'), 
+                        // we treat it as sentence punctuation and remove it.
+                        // For simplicity and to fix your specific case (URL), we check if it is preceded by a non-path character.
+                        if char_before_paren != Some('/') && char_before_paren != Some(')') {
+                            end_offset -= 1; 
+                        }
+                    }
+                    
+                    // Check for trailing period or comma, and remove if present (as they are sentence terminators)
+                    if end_offset > 0 {
+                        let last_char = slice_to_search.chars().nth(end_offset.saturating_sub(1));
+                        if last_char == Some('.') || last_char == Some(',') {
+                            // Ensure the dot is not part of a path (e.g., in a filename or query parameter like ?p=1.0)
+                            // Since we only found termination at whitespace or ']', this simple trim is relatively safe
+                            // for sentence ending.
+                            end_offset -= 1;
+                        }
+                    }
+
+                    let end_index = start_index + end_offset;
+                    
                     let url_slice = &text_str[start_index..end_index];
                     events.push(Event::Start(Tag::Link(LinkType::Autolink, url_slice.to_string().into(), "Automatically Linked URL".into())));
                     events.push(Event::Text(url_slice.to_string().into()));
@@ -351,6 +396,7 @@ pub fn process_markdown_events<'a>(
                 }
             }
             Event::Start(Tag::Link(link_type, dest, title_attr)) => {
+                in_link = true; // NEW: Set flag when any link starts
                 let is_external = dest.starts_with("http") || dest.starts_with("ftp");
                 if link_type == LinkType::Inline && !is_external {
                     let dest_path = PathBuf::from(&*dest);
@@ -364,6 +410,7 @@ pub fn process_markdown_events<'a>(
                 }
             }
             Event::End(Tag::Link(link_type, dest, title_attr)) => {
+                in_link = false; // NEW: Clear flag when link ends
                 let is_external = dest.starts_with("http") || dest.starts_with("ftp");
                 if is_external {
                     events.push(Event::Html("</a>".into()));

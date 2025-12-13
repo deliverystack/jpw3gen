@@ -84,6 +84,7 @@ Browse to:
 - Generate Sitemap.xml and optionally robots.txt (using JSON)
 - --debug N for verbosity level
 - In https://www.jpw3.com/articles/2025/December/my-ego.html does not match entire URL https://en.wikipedia.org/wiki/Shadow_(psychology)
+- In https://www.jpw3.com/articles/2025/December/weath-power.html, same for https://www.linkedin.com/posts/johnwest3_blogged-wealth-and-power-concentrate-wealth-activity-7402221231418351618-_9mS
 
 ```
 

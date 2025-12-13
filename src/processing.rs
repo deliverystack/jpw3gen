@@ -96,6 +96,12 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, metadata: &PageMetadata
     let control_char_regex = Regex::new(r"[\p{Cc}\p{Cf}&&[^\n\t\r]]").unwrap();
     let json_regex = Regex::new(r"(?s)```json\s*(\{.*?\})\s*```\s*(\s*)$").unwrap();
     let todo_regex = Regex::new(r"^(?P<prefix>[\s*>\-\+]*)(TODO:?\s*)(?P<text>.*)$").unwrap();
+    
+    // Regex for finding bare URLs in list items:
+    // This will find: (start of line) (optional whitespace) (- followed by space) (http(s)://...)
+    // This is the pattern we agreed to auto-correct.
+    let list_url_regex = Regex::new(r"(?m)^(\s*[\-\*+]\s+)(https?://\S+)").unwrap();
+
 
     let markdown_input = match fs::read_to_string(path_source) {
         Ok(c) => c,
@@ -105,11 +111,11 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, metadata: &PageMetadata
         }
     };
     
-    // Use this mutable variable for all structural cleaning and normalization.
-    let mut content_to_normalize = markdown_input.clone();
+    // This variable holds content that needs structural cleanup (written back to disk)
+    let mut content_for_normalization = markdown_input.clone();
 
     // 1. CLEANING & DASH CONVERSION 
-    content_to_normalize = control_char_regex.replace_all(&content_to_normalize, "")
+    content_for_normalization = control_char_regex.replace_all(&content_for_normalization, "")
         .to_string()
         .replace('\r', "")      
         .replace('\u{2011}', "-") 
@@ -118,7 +124,7 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, metadata: &PageMetadata
         .replace('\u{00A0}', " "); 
 
     // 2. C-COMMENT CONVERSION
-    let lines_to_convert: Vec<String> = content_to_normalize.lines()
+    let lines_to_convert: Vec<String> = content_for_normalization.lines()
         .map(|line| {
             // Ensure we don't accidentally comment out the JSON block
             if !line.contains("```json") && !line.contains("```") && line.trim_start().starts_with("//") {
@@ -130,10 +136,10 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, metadata: &PageMetadata
         })
         .collect();
     
-    content_to_normalize = lines_to_convert.join("\n");
+    content_for_normalization = lines_to_convert.join("\n");
     
     // 3. TODO FORMATTING
-    let lines_with_todo: Vec<String> = content_to_normalize.lines()
+    let lines_with_todo: Vec<String> = content_for_normalization.lines()
         .map(|line| {
             if todo_regex.is_match(line) {
                  todo_regex.replace(line, "$prefix***//TODO: $text***").to_string()
@@ -143,68 +149,78 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, metadata: &PageMetadata
         })
         .collect();
     
-    content_to_normalize = lines_with_todo.join("\n");
+    content_for_normalization = lines_with_todo.join("\n");
 
 
     // 4. ENSURE LEADING NEWLINE
-    let starts_with_whitespace = content_to_normalize.chars().next().map_or(true, char::is_whitespace);
+    let starts_with_whitespace = content_for_normalization.chars().next().map_or(true, char::is_whitespace);
     
-    let mut content_was_structurally_modified = content_to_normalize != markdown_input;
+    // Use the original markdown_input to check if the file was structurally modified
+    let mut content_was_structurally_modified = content_for_normalization != markdown_input;
 
     if !starts_with_whitespace {
-        content_to_normalize.insert(0, '\n');
+        content_for_normalization.insert(0, '\n');
         content_was_structurally_modified = true; 
     }
 
     // 5. OVERWRITE FILE IF MODIFIED (Saves the normalized content, including JSON)
+    // ONLY content_for_normalization (which contains only structural/non-linking changes) is written back.
     if content_was_structurally_modified {
-        fs::write(path_source, &content_to_normalize)?;
-        print_warning(&format!("Corrected source file: {}", path_source.display()));
+        fs::write(path_source, &content_for_normalization)?;
+        print_warning(&format!("Corrected source file (structural normalization): {}", path_source.display()));
         if !starts_with_whitespace {
              print_warning(&format!("File {} did not start with whitespace. Prepended a blank line.", path_rel.display()));
         }
     } else if args.verbose {
-        print_info(&format!("Source file requires no modification: {}", path_source.display()));
+        print_info(&format!("Source file requires no structural modification: {}", path_source.display()));
     }
     
-    // 6. JSON METADATA STRIPPING FOR PARSER ONLY (Controlled by metadata flag)
-    let content_for_parser = if metadata.keep_json_in_content.unwrap_or(false) {
-        // If flag is true, use the normalized content which includes the JSON block.
-        content_to_normalize.clone()
-    } else {
+    
+    // 6. IN-MEMORY URL FIXING FOR PARSER ONLY
+    // We clone the content_for_normalization to create the version for the parser.
+    let mut content_for_parser = content_for_normalization.clone();
+    
+    // Perform the list-item URL auto-linking substitution on the in-memory content_for_parser
+    // Replacement: $1<$2> (keeps the list prefix, wraps the URL in explicit autolink syntax)
+    content_for_parser = list_url_regex
+        .replace_all(&content_for_parser, "$1<$2>")
+        .to_string();
+
+    
+    // 7. JSON METADATA STRIPPING FOR PARSER ONLY (Controlled by metadata flag)
+    if !metadata.keep_json_in_content.unwrap_or(false) {
         // If flag is false or missing, strip the JSON block from the content passed to the parser.
-        json_regex.replace_all(&content_to_normalize, |caps: &regex::Captures| {
+        content_for_parser = json_regex.replace_all(&content_for_parser, |caps: &regex::Captures| {
             caps.get(2).map_or("", |m| m.as_str()).to_string()
-        }).to_string()
-    };
+        }).to_string();
+    }
 
 
-    // 7. LINK CHECKING (Unchanged)
-    let link_regex = Regex::new(r"\[[^\]]+\]\(([^)]+\.md)\)").unwrap();
+    // 8. LINK CHECKING (Unchanged - uses content_for_normalization for line/file structure consistency)
     let parent_dir = path_source.parent().unwrap_or_else(|| Path::new(""));
-
-    for caps in link_regex.captures_iter(&content_to_normalize) {
+    
+    // Check for internal broken links
+    let link_regex = Regex::new(r"\[[^\]]+\]\(([^)]+\.md)\)").unwrap();
+    for caps in link_regex.captures_iter(&content_for_normalization) {
         let link_target = &caps[1];
         let target_path = parent_dir.join(link_target);
-
         if !target_path.exists() {
             print_warning(&format!("Broken link detected in {}: Link to non-existent file '{}'", path_rel.display(), link_target));
         }
     }
     
+    // Check for broken image links
     let image_link_regex = Regex::new(r"!\[[^\]]*\]\(([^)]+\.(png|jpe?g|gif|svg))\)").unwrap();
-
-    for caps in image_link_regex.captures_iter(&content_to_normalize) {
+    for caps in image_link_regex.captures_iter(&content_for_normalization) {
         let link_target = &caps[1]; 
         let target_path = parent_dir.join(link_target);
-
         if !target_path.exists() {
             print_warning(&format!("Broken image link detected in {}: Link to non-existent image '{}'", path_rel.display(), link_target));
         }
     }
 
 
-    // 8. RENDER MARKDOWN TO HTML (Uses the stripped/conditional content_for_parser)
+    // 9. RENDER MARKDOWN TO HTML (Uses the modified, stripped in-memory content_for_parser)
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
@@ -221,13 +237,11 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, metadata: &PageMetadata
     let mut path_target_html = path_target.to_path_buf();
     path_target_html.set_extension("html");
     
-    // Pass the entire metadata_map to navigation generation
     let nav_html = generate_navigation_html(args, site_map, metadata_map, path_rel);
     
     let last_modified_time = get_last_modified_date(path_source);
     
-    // ----------------------------------------------------------------
-    // FIX: Ensure rel_path_str (for {{ source_path }}) starts with a leading slash (/)
+    // Ensure rel_path_str (for {{ source_path }}) starts with a leading slash (/)
     let rel_path_str = {
         let path_str = path_rel.to_string_lossy();
         if path_str.starts_with('/') {
@@ -236,8 +250,6 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, metadata: &PageMetadata
             format!("/{}", path_str)
         }
     };
-    // ----------------------------------------------------------------
-
 
     // Use the potentially overridden title
     let final_html = format_html_page(&title, &rel_path_str, &last_modified_time, &nav_html, &html_output_content, html_template);
@@ -283,7 +295,7 @@ pub fn process_markdown_events<'a>(
     let mut current_heading_id: Option<String> = None;
     let mut current_heading_classes: Option<Vec<String>> = None; 
     
-    // NEW: Link tracking flag to prevent auto-linking inside existing markdown links
+    // Link tracking flag
     let mut in_link = false; 
 
     for event in parser {
@@ -325,84 +337,25 @@ pub fn process_markdown_events<'a>(
                     title_h1.push_str(&text);
                 } 
                 
-                // FIX 1: If inside an existing link, skip custom auto-linking logic.
+                // If inside an existing link, skip any processing
                 if in_link {
                     events.push(Event::Text(text));
                     continue; 
                 }
 
-                let text_str = text.to_string();
-                let mut current_pos = 0;
-                let mut found_link = false;
-
-                if let Some(start_index) = text_str.find("http://").or(text_str.find("https://")) {
-                    found_link = true;
-                    if start_index > 0 {
-                        events.push(Event::Text(text_str[..start_index].to_string().into()));
-                    }
-                    
-                    let slice_to_search = &text_str[start_index..];
-                    let mut end_offset;
-
-                    // Step 1: Find the initial termination point (whitespace or markdown bracket)
-                    if let Some(found_index) = slice_to_search
-                        .find(|c: char| c.is_whitespace() || c == ']')
-                    {
-                        end_offset = found_index;
-                    } else {
-                        end_offset = slice_to_search.len();
-                    }
-
-                    // Step 2: Trim trailing punctuation (.,) and closing parenthesis
-                    
-                    // Check for trailing ')'
-                    if end_offset > 0 && slice_to_search.chars().nth(end_offset.saturating_sub(1)) == Some(')') {
-                        // Check the character *before* the potential trailing ')'
-                        let char_before_paren = slice_to_search.chars().nth(end_offset.saturating_sub(2));
-                        
-                        // If the ')' is not part of a valid sub-path (e.g. not preceded by '/') 
-                        // and not part of an explicitly closed group of parentheses (like '...)))'), 
-                        // we treat it as sentence punctuation and remove it.
-                        // For simplicity and to fix your specific case (URL), we check if it is preceded by a non-path character.
-                        if char_before_paren != Some('/') && char_before_paren != Some(')') {
-                            end_offset -= 1; 
-                        }
-                    }
-                    
-                    // Check for trailing period or comma, and remove if present (as they are sentence terminators)
-                    if end_offset > 0 {
-                        let last_char = slice_to_search.chars().nth(end_offset.saturating_sub(1));
-                        if last_char == Some('.') || last_char == Some(',') {
-                            // Ensure the dot is not part of a path (e.g., in a filename or query parameter like ?p=1.0)
-                            // Since we only found termination at whitespace or ']', this simple trim is relatively safe
-                            // for sentence ending.
-                            end_offset -= 1;
-                        }
-                    }
-
-                    let end_index = start_index + end_offset;
-                    
-                    let url_slice = &text_str[start_index..end_index];
-                    events.push(Event::Start(Tag::Link(LinkType::Autolink, url_slice.to_string().into(), "Automatically Linked URL".into())));
-                    events.push(Event::Text(url_slice.to_string().into()));
-                    events.push(Event::End(Tag::Link(LinkType::Autolink, url_slice.to_string().into(), "Automatically Linked URL".into())));
-                    current_pos = end_index;
-                }
-
-                if !found_link {
-                    events.push(Event::Text(text));
-                } else if current_pos < text_str.len() {
-                    events.push(Event::Text(text_str[current_pos..].to_string().into()));
-                }
+                // Custom auto-linking logic is now handled in markdown_to_html via regex substitution.
+                events.push(Event::Text(text));
             }
             Event::Start(Tag::Link(link_type, dest, title_attr)) => {
-                in_link = true; // NEW: Set flag when any link starts
+                in_link = true; 
                 let is_external = dest.starts_with("http") || dest.starts_with("ftp");
                 if link_type == LinkType::Inline && !is_external {
                     let dest_path = PathBuf::from(&*dest);
                     let new_dest = rewrite_link_to_relative(path_rel, &dest_path, site_map, args.verbose);
                     events.push(Event::Start(Tag::Link(link_type, new_dest.into(), title_attr)));
                 } else if is_external {
+                    // Check if the link is a custom autolink generated by the regex substitution (it starts with http)
+                    // If it is an external link, we use a custom target="_blank" HTML tag
                     let html_tag_start = format!("<a href=\"{}\" title=\"{}\" target=\"_blank\">", dest, title_attr.replace('"', "&quot;"));
                     events.push(Event::Html(html_tag_start.into()));
                 } else {
@@ -410,7 +363,7 @@ pub fn process_markdown_events<'a>(
                 }
             }
             Event::End(Tag::Link(link_type, dest, title_attr)) => {
-                in_link = false; // NEW: Clear flag when link ends
+                in_link = false; 
                 let is_external = dest.starts_with("http") || dest.starts_with("ftp");
                 if is_external {
                     events.push(Event::Html("</a>".into()));
@@ -504,3 +457,4 @@ pub fn get_last_modified_date(path: &Path) -> String {
     let datetime: DateTime<Utc> = modified_time.into();
     datetime.format("%Y-%m-%d").to_string()
 }
+

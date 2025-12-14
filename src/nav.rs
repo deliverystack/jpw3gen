@@ -15,18 +15,9 @@ pub fn generate_navigation_html(args: &Args, site_map: &SiteMap, metadata_map: &
     nav_tree_to_html(&nav_tree, current_rel_path, site_map, args, true)
 }
 
-fn build_nav_tree(site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_path: &Path) -> NavItem {
-    let mut root_children: NavTree = BTreeMap::new();
-    let current_html_path = current_rel_path.with_extension("html");
-    
-    // Initial sort ensures consistent starting order for paths without explicit metadata
-    let mut sorted_paths: Vec<PathBuf> = site_map.iter().cloned().collect();
-    sorted_paths.sort(); 
-
-    // Create a persistent default value outside the loop
+// Helper 1/4: Determines which directories should be excluded based on their index.md metadata.
+fn get_excluded_directories(site_map: &SiteMap, metadata_map: &MetadataMap) -> std::collections::HashSet<PathBuf> {
     let default_metadata = PageMetadata::default();
-
-    // Directory Exclusion Pre-processing
     let mut excluded_dirs = std::collections::HashSet::new();
     
     for rel_path in site_map.iter().filter(|p| p.file_name().map_or(false, |n| n == "index.md")) {
@@ -38,123 +29,201 @@ fn build_nav_tree(site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_pa
             }
         }
     }
-    // END Directory Exclusion Pre-processing
+    excluded_dirs
+}
 
-    for rel_path in sorted_paths {
-        let metadata = metadata_map.get(&rel_path).unwrap_or(&default_metadata);
+// Helper 2/4: Consolidates all logic for filtering/skipping a path.
+fn should_skip_path(rel_path: &Path, metadata: &PageMetadata, excluded_dirs: &std::collections::HashSet<PathBuf>) -> bool {
+    // 1. Metadata Exclusion
+    if metadata.exclude_from_nav.unwrap_or(false) {
+        return true;
+    }
 
-        if metadata.exclude_from_nav.unwrap_or(false) {
-            continue;
-        }
+    // 2. Directory Exclusion Check
+    let is_in_excluded_dir = excluded_dirs.iter().any(|excluded_dir| {
+        !excluded_dir.as_os_str().is_empty() && rel_path.starts_with(excluded_dir)
+    });
 
-        // Correct Directory Exclusion Check
-        let is_in_excluded_dir = excluded_dirs.iter().any(|excluded_dir| {
-            !excluded_dir.as_os_str().is_empty() && rel_path.starts_with(excluded_dir)
+    if is_in_excluded_dir {
+        return true;
+    }
+
+    // 3. index.md/README.md Exclusion
+    let is_index_md = rel_path.file_name().map_or(false, |n| n == "index.md");
+    let is_root = rel_path.parent().map_or(true, |p| p.as_os_str().is_empty()); 
+
+    // Always exclude non-root index.md files from appearing as "Files" in the tree
+    if is_index_md && !is_root {
+        return true;
+    }
+    
+    let is_root_readme = rel_path.file_name().map_or(false, |n| n == "README.md")
+        && rel_path.parent().map_or(true, |p| p.as_os_str().is_empty());
+    
+    if is_root_readme {
+        return true;
+    }
+
+    // 4. File Extension/Name Exclusion (Includes favicon.ico, styles.css, etc.)
+    let file_name = rel_path.file_name().map_or("", |n| n.to_str().unwrap_or(""));
+        
+    if file_name == "favicon.ico" || // Exclude favicon.ico
+        file_name == "template.html" ||
+        file_name.ends_with(".css") || // Exclude CSS files
+        file_name.ends_with(".js") || // Exclude JS files
+        rel_path.starts_with("scraps") || 
+        rel_path.starts_with("life-story") {
+        return true;
+    }
+    
+    // 5. Only process markdown files here for navigation content
+    let path_extension = rel_path.extension().map_or("", |ext| ext.to_str().unwrap_or(""));
+    if path_extension != "md" {
+        return true;
+    }
+    
+    false
+}
+
+// Helper 3/4: Determines the display name and sort key for a given path.
+// Returns (file_name, insertion_key)
+fn create_nav_item_data(rel_path: &Path, metadata: &PageMetadata) -> Option<(String, String)> {
+    let components: Vec<String> = rel_path.components()
+        .filter_map(|c| match c {
+            std::path::Component::Normal(os_str) => Some(os_str.to_string_lossy().to_string()),
+            _ => None,
+        })
+        .collect();
+
+    if components.is_empty() { return None; }
+    
+    // 1. Determine the display name (used for rendering FILES)
+    let file_name = if let Some(title) = metadata.nav_title.clone() {
+        title
+    } else {
+        rel_path.file_stem()
+            .and_then(|stem| stem.to_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| components.last().unwrap().clone())
+    };
+    
+    // 2. Determine the insertion key (used for sorting)
+    let primary_sort_key = metadata.sort_key.as_ref().map(|s| s.to_string())
+        .unwrap_or_else(|| file_name.clone());
+
+    let final_sort_key_for_map = primary_sort_key.to_lowercase(); 
+
+    let insertion_key = format!("{}--{}", final_sort_key_for_map, rel_path.to_string_lossy());
+
+    Some((file_name, insertion_key))
+}
+
+// Helper 4/4: Traverses the NavTree structure and inserts the NavItem at the correct location.
+fn insert_item_into_tree(
+    root_children: &mut NavTree, 
+    rel_path: &Path, 
+    metadata_map: &MetadataMap, 
+    current_html_path: &Path,
+    file_name: String, 
+    insertion_key: String
+) {
+    let components: Vec<String> = rel_path.components()
+        .filter_map(|c| match c {
+            std::path::Component::Normal(os_str) => Some(os_str.to_string_lossy().to_string()),
+            _ => None,
+        })
+        .collect();
+
+    let mut current_map = root_children;
+    let mut path_builder = PathBuf::new();
+    let mut is_at_root_level = true; 
+    // Removed the unused `default_metadata` declaration from here.
+
+    // Iterate through all components except the last one (the file)
+    for i in 0..components.len() - 1 {
+        let dir_name_str = &components[i];
+        path_builder.push(dir_name_str);
+        
+        is_at_root_level = false;
+
+        // Get or create the Directory item. 
+        let entry = current_map.entry(dir_name_str.clone()).or_insert_with(|| {
+             let index_md_path = path_builder.join("index.md");
+             
+             // Default to the directory folder name
+             let mut dir_display_name = dir_name_str.clone();
+
+             // Check if we have metadata for this directory's index.md
+             if let Some(dir_metadata) = metadata_map.get(&index_md_path) {
+                 if let Some(title) = &dir_metadata.nav_title {
+                     dir_display_name = title.clone();
+                 }
+             }
+
+             NavItem::Directory {
+                 rel_path: path_builder.clone(),
+                 name: dir_display_name,
+                 children: BTreeMap::new(),
+             }
         });
 
-        if is_in_excluded_dir {
+        // Update reference to the children of the current directory
+        current_map = entry.get_children_mut().expect("Item should be a directory");
+    }
+
+    // Insert the File item using the composite insertion_key
+    if !is_at_root_level || components.len() == 1 {
+        let is_current = rel_path.with_extension("html") == *current_html_path;
+        current_map.insert(insertion_key, NavItem::File {
+            // FIX: Convert &Path to PathBuf by calling to_path_buf()
+            rel_path: rel_path.to_path_buf(),
+            name: file_name,
+            is_current,
+        });
+    }
+}
+
+
+fn build_nav_tree(site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_path: &Path) -> NavItem {
+    let mut root_children: NavTree = BTreeMap::new();
+    let current_html_path = current_rel_path.with_extension("html");
+    
+    // Initial sort ensures consistent starting order
+    let mut sorted_paths: Vec<PathBuf> = site_map.iter().cloned().collect();
+    sorted_paths.sort(); 
+
+    // Create a persistent default value outside the loop
+    // FIX: Renamed to satisfy the unused variable warning
+    let _default_metadata = PageMetadata::default();
+
+    // 1. Determine excluded directories
+    let excluded_dirs = get_excluded_directories(site_map, metadata_map);
+
+    for rel_path_buf in sorted_paths {
+        let rel_path = rel_path_buf.as_path(); // Use &Path for filtering/data creation
+        // FIX: Updated usage to the new variable name
+        let metadata = metadata_map.get(rel_path).unwrap_or(&_default_metadata);
+
+        // 2. Filter out paths that should be skipped
+        if should_skip_path(rel_path, metadata, &excluded_dirs) {
             continue;
         }
-        // END Correct Directory Exclusion Check
 
-        // Always exclude non-root index.md files from appearing as "Files" in the tree
-        // (They are handled as the Directory link itself)
-        let is_index_md = rel_path.file_name().map_or(false, |n| n == "index.md");
-        let is_root = rel_path.parent().map_or(true, |p| p.as_os_str().is_empty()); 
-
-        if is_index_md && !is_root {
-            continue;
-        }
-
-        // Exclude specific files and directories
-        if rel_path.file_name().map_or(false, |n| n == "template.html" || n == "styles.css") ||
-           rel_path.starts_with("scraps") || rel_path.starts_with("life-story") {
-            continue;
-        }
-
-        let is_root_readme = rel_path.file_name().map_or(false, |n| n == "README.md")
-            && rel_path.parent().map_or(true, |p| p.as_os_str().is_empty());
-        
-        if is_root_readme {
-            continue;
-        }
-
-        // Convert path components to strings safely
-        let components: Vec<String> = rel_path.components()
-            .filter_map(|c| match c {
-                std::path::Component::Normal(os_str) => Some(os_str.to_string_lossy().to_string()),
-                _ => None,
-            })
-            .collect();
-
-        if components.is_empty() { continue; }
-        
-        // 1. Determine the display name (used for rendering FILES)
-        let file_name = if let Some(title) = metadata.nav_title.clone() {
-            title
-        } else {
-            rel_path.file_stem()
-                .and_then(|stem| stem.to_str())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| components.last().unwrap().clone())
+        // 3. Create display name and sort key
+        let (file_name, insertion_key) = match create_nav_item_data(rel_path, metadata) {
+            Some(data) => data,
+            None => continue,
         };
-        
-        // 2. Determine the insertion key (used for sorting)
-        let primary_sort_key = metadata.sort_key.as_ref().map(|s| s.to_string())
-            .unwrap_or_else(|| file_name.clone());
 
-        let final_sort_key_for_map = primary_sort_key.to_lowercase(); 
-
-        let insertion_key = format!("{}--{}", final_sort_key_for_map, rel_path.to_string_lossy());
-        
-        // Start traversal from the root map
-        let mut current_map = &mut root_children;
-        let mut path_builder = PathBuf::new();
-        let mut is_at_root_level = true; 
-
-        // Iterate through all components except the last one (the file)
-        for i in 0..components.len() - 1 {
-            let dir_name_str = &components[i];
-            path_builder.push(dir_name_str);
-            
-            is_at_root_level = false;
-
-            // Get or create the Directory item. 
-            let entry = current_map.entry(dir_name_str.clone()).or_insert_with(|| {
-                 // --- FIX START: Check index.md for directory title ---
-                 let index_md_path = path_builder.join("index.md");
-                 
-                 // Default to the directory folder name
-                 let mut dir_display_name = dir_name_str.clone();
-
-                 // Check if we have metadata for this directory's index.md
-                 if let Some(dir_metadata) = metadata_map.get(&index_md_path) {
-                     if let Some(title) = &dir_metadata.nav_title {
-                         dir_display_name = title.clone();
-                     }
-                 }
-                 // --- FIX END ---
-
-                 NavItem::Directory {
-                     rel_path: path_builder.clone(),
-                     name: dir_display_name, // Now uses the nav_title if available
-                     children: BTreeMap::new(),
-                 }
-            });
-
-            // Update reference to the children of the current directory
-            current_map = entry.get_children_mut().expect("Item should be a directory");
-        }
-
-        // 3. Insert the File item using the composite insertion_key
-        if !is_at_root_level || components.len() == 1 {
-            let is_current = rel_path.with_extension("html") == current_html_path;
-            current_map.insert(insertion_key, NavItem::File {
-                rel_path: rel_path.clone(),
-                name: file_name,
-                is_current,
-            });
-        }
+        // 4. Traverse and insert the item into the tree
+        insert_item_into_tree(
+            &mut root_children, 
+            rel_path, 
+            metadata_map, 
+            &current_html_path, 
+            file_name, 
+            insertion_key
+        );
     }
 
     NavItem::Directory {

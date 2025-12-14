@@ -2,6 +2,7 @@ use std::{fs, io, path::{Path, PathBuf}, mem, collections::BTreeMap};
 use pulldown_cmark::{Parser, Options, Event, Tag, HeadingLevel, LinkType};
 use chrono::{DateTime, Utc};
 use serde_json; 
+
 use regex::Regex;
 use crate::config::{Args, SiteMap, PageMetadata, MetadataMap}; 
 use crate::io::{print_info, print_warning, print_error};
@@ -164,11 +165,26 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, metadata: &PageMetadata
     content_for_normalization = control_char_regex.replace_all(&content_for_normalization, "")
         .to_string()
         .replace('\r', "")      
-        .replace('\u{2011}', "-") 
-        .replace('\u{2013}', "-") 
-        .replace('\u{2014}', "--") 
-        .replace('\u{00A0}', " "); 
-
+        .replace('\u{2011}', "-")   // Non-breaking hyphen
+        .replace('\u{2013}', "-")   // En dash
+        .replace('\u{2014}', "--")  // Em dash
+        .replace('\u{00A0}', " ")   // Non-breaking space
+        // Smart quotes to straight quotes
+        .replace('\u{2018}', "'")   // Left single quote
+        .replace('\u{2019}', "'")   // Right single quote
+        .replace('\u{201A}', "'")   // Single low quote
+        .replace('\u{201B}', "'")   // Single high reversed quote
+        .replace('\u{201C}', "\"")  // Left double quote
+        .replace('\u{201D}', "\"")  // Right double quote
+        .replace('\u{201E}', "\"")  // Double low quote
+        .replace('\u{201F}', "\"")  // Double high reversed quote
+        // Ellipsis
+        .replace('\u{2026}', "...")  // Horizontal ellipsis
+        // Other common replacements
+        .replace('\u{2032}', "'")   // Prime (often used as apostrophe)
+        .replace('\u{2033}', "\"")  // Double prime
+        .replace('\u{2010}', "-");  // Hyphen
+        
     // 2. C-COMMENT CONVERSION
     let lines_to_convert: Vec<String> = content_for_normalization.lines()
         .map(|line| {
@@ -433,8 +449,8 @@ pub fn process_markdown_events<'a>(
     }
 
     let final_title = if !title_h1.is_empty() { title_h1 } else { path_rel.to_string_lossy().to_string() };
-    let final_content = html_output + &events_to_html(events);
-    
+    let html_from_events = events_to_html(events);
+    let final_content = html_output + &convert_urls_to_anchors(&html_from_events);    
     (final_content, final_title)
 }
 
@@ -604,4 +620,45 @@ pub fn generate_sitemap_xml(args: &Args, metadata_map: &MetadataMap) -> io::Resu
     }
     
     Ok(())
+}
+
+pub fn convert_urls_to_anchors(html: &str) -> String {
+    let url_regex = Regex::new(r"https?://[^\s<]+").unwrap();
+    let anchor_regex = Regex::new(r"<a\b[^>]*>.*?</a>").unwrap();
+    
+    let mut result = String::new();
+    let mut last_pos = 0;
+    
+    // Find all anchor tags to skip
+    let mut anchor_ranges = Vec::new();
+    for mat in anchor_regex.find_iter(html) {
+        anchor_ranges.push((mat.start(), mat.end()));
+    }
+    
+    // Process URLs outside of anchor tags
+    for url_match in url_regex.find_iter(html) {
+        let start = url_match.start();
+        let end = url_match.end();
+        
+        // Check if this URL is inside an anchor tag
+        let in_anchor = anchor_ranges.iter().any(|(a_start, a_end)| start >= *a_start && end <= *a_end);
+        
+        if !in_anchor {
+            // Add text before the URL
+            result.push_str(&html[last_pos..start]);
+            // Add the URL as an anchor
+            let url = url_match.as_str();
+            result.push_str(&format!("<a href=\"{}\">{}</a>", url, url));
+            last_pos = end;
+        }
+    }
+    
+    // Add remaining text
+    result.push_str(&html[last_pos..]);
+    
+    if result.is_empty() {
+        html.to_string()
+    } else {
+        result
+    }
 }

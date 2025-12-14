@@ -84,3 +84,4 @@ Browse to:
 - Generate Sitemap.xml and optionally robots.txt (using JSON)
 - --debug N for verbosity level
 - exlcude favion from nav
+- confirm nav sort sorts by nav title when present, not file name, etc.

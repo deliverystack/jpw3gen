@@ -39,11 +39,27 @@ pub fn process_directory(args: &Args, site_map: &SiteMap, metadata_map: &Metadat
         let entry = entry?;
         let path_source = entry.path();
 
-        //TODO: this should be checking the JSON in the file or in index.md of the directory rather than hard-coding
         if path_source.is_dir() {
             if let Some(name) = path_source.file_name().and_then(|s| s.to_str()) {
-                if name.starts_with('.') || name == "scraps" {
-                    continue;
+                if name.starts_with('.') {
+                    continue; // Keep hard-coded hidden directory exclusion
+                }
+                
+                // Check directory exclusion via index.md metadata
+                let dir_rel_path = path_source.strip_prefix(&args.source).unwrap_or(Path::new(""));
+                let index_md_rel_path = dir_rel_path.join("index.md");
+
+                // Check if index.md exists and has 'avoid_generation: true'
+                let should_avoid = metadata_map
+                    .get(&index_md_rel_path)
+                    .and_then(|m| m.avoid_generation)
+                    .unwrap_or(false); // Default to false
+
+                if should_avoid {
+                    if args.verbose {
+                        print_info(&format!("Skipping directory based on index.md metadata: {}", dir_rel_path.display()));
+                    }
+                    continue; 
                 }
             }
             process_directory(args, site_map, metadata_map, &path_source, html_template)?;
@@ -52,13 +68,44 @@ pub fn process_directory(args: &Args, site_map: &SiteMap, metadata_map: &Metadat
             let path_target = current_dir_target.join(file_name);
             
             let rel_path = path_source.strip_prefix(&args.source).unwrap_or(Path::new(""));
+
+            // NEW GLOBAL FILE EXCLUSION LOGIC
+            let file_name_str = file_name.to_string_lossy().to_lowercase();
             
-            if rel_path.as_os_str().to_string_lossy() == "README.md" {
+            // Explicit list of files to skip copying/processing - see a similar list in nav.rs - and related logic in jpw3gen.sh
+            const EXCLUDED_FILE_NAMES: [&str; 2] = ["template.html", "favicon.ico"];
+
+            // Explicit list of extensions to skip copying/processing (CSS, JS, generated HTML, sitemap XML)  - see a similar list in nav.rs - and related logic in jpw3gen.sh
+            const EXCLUDED_EXTENSIONS: [&str; 5] = ["css", "js", "xml", "html", "ico"]; 
+
+            if EXCLUDED_FILE_NAMES.contains(&file_name_str.as_str()) {
+                if args.verbose {
+                    print_info(&format!("Skipping explicitly excluded file: {}", rel_path.display()));
+                }
                 continue;
             }
 
+            if let Some(ext) = path_source.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase()) {
+                if EXCLUDED_EXTENSIONS.contains(&ext.as_str()) {
+                    if args.verbose {
+                        print_info(&format!("Skipping file with excluded extension (.{}: {})", ext, rel_path.display()));
+                    }
+                    continue;
+                }
+            }
+            // END NEW GLOBAL FILE EXCLUSION LOGIC
+            
             if rel_path.extension().map_or(false, |ext| ext == "md") {
                 let metadata = metadata_map.get(rel_path).expect("Metadata should exist for every markdown file in site_map");
+                
+                // Check file exclusion via its own metadata
+                if metadata.avoid_generation.unwrap_or(false) {
+                    if args.verbose {
+                        print_info(&format!("Skipping file based on metadata: {}", rel_path.display()));
+                    }
+                    continue; // Skip the file if metadata says to avoid generation
+                }
+
                 markdown_to_html(args, site_map, metadata, &path_source, &path_target, rel_path, html_template, metadata_map)?;
             } else {
                 smart_copy_file(args, &path_source, &path_target, rel_path)?;

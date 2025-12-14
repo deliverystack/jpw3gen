@@ -46,6 +46,7 @@ fi
 
 GEN_CMD="$CARGO_TARGET_DIR/debug/jpw3gen --source $SOURCE --target $TARGET"
 $GEN_CMD # --verbose 
+cp $TARGET/template.html $TARGET/styles.css $GEN
 
 if [ $CLEANUP -eq 1 ]; then
     $GEN/jpw3hist.sh 

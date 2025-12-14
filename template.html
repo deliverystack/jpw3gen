@@ -26,8 +26,14 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
             <h1>{{ header_title }}</h1>
         </header>
         
-        <nav>
+        <nav data-nosnippet>
             {{ nav_html }}
+
+            <form method="get" action="https://www.google.com/search">
+              <input type="hidden" name="q" value="site:jpw3.com">
+              &nbsp;&nbsp;<input type="text" name="q" placeholder="Search jpw3.com" style="width: 100px;">
+              <input type="submit" value="Search">
+            </form>
         </nav>
         
         <main>

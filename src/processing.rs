@@ -458,3 +458,93 @@ pub fn get_last_modified_date(path: &Path) -> String {
     datetime.format("%Y-%m-%d").to_string()
 }
 
+pub fn generate_sitemap_xml(args: &Args, metadata_map: &MetadataMap) -> io::Result<()> {
+    let sitemap_path = args.target.join("sitemap.xml");
+    
+    // Default values if metadata is missing
+    let default_changefreq = "monthly";
+    // Base priority (0.5 is a common default for pages not explicitly prioritized)
+    let base_priority = 0.5; 
+
+    let mut entries = Vec::new();
+    
+    for (rel_path, metadata) in metadata_map.iter() {
+        // Only include files explicitly marked for sitemap
+        if metadata.include_in_sitemap.unwrap_or(false) {
+            
+            // 1. Determine the URL (loc)
+            let mut url_path = rel_path.to_path_buf();
+            
+            // Per the requirement, use /directory rather than /directory/index.html
+            if rel_path.file_name().map_or(false, |n| n == "index.md") {
+                // If index.md is at root (e.g., index.md), result is /
+                if rel_path.parent().map_or(false, |p| p.as_os_str().is_empty()) {
+                    url_path = PathBuf::from(""); // Represents the root URL "/"
+                } else {
+                    // If index.md is in a directory (e.g., docs/index.md), result is /docs
+                    url_path = rel_path.parent().unwrap().to_path_buf();
+                }
+            } else {
+                // For other files (e.g., page.md), result is /page.html
+                url_path.set_extension("html");
+            }
+            
+            // Final URL string, ensuring a leading slash for non-root paths
+            let loc_url = {
+                let path_str = url_path.to_string_lossy();
+                if path_str.is_empty() {
+                    "/".to_string()
+                } else {
+                    format!("/{}", path_str)
+                }
+            };
+            
+            // 2. Determine last modified date (lastmod)
+            let source_path = args.source.join(rel_path);
+            let last_mod = get_last_modified_date(&source_path); 
+            
+            // 3. Determine change frequency (changefreq)
+            let change_freq = metadata.sitemap_changefreq.as_deref().unwrap_or(default_changefreq);
+            
+            // 4. Determine priority (priority)
+            // Use the new dedicated key, falling back to the base priority if not set.
+            let priority_float = metadata.sitemap_priority.unwrap_or(base_priority).min(1.0).max(0.0);
+            let priority = format!("{:.1}", priority_float); // Format to one decimal place
+
+            // Create the XML entry
+            let entry = format!(
+                "  <url>\n    <loc>{}</loc>\n    <lastmod>{}</lastmod>\n    <changefreq>{}</changefreq>\n    <priority>{}</priority>\n  </url>",
+                loc_url,
+                last_mod,
+                change_freq,
+                priority
+            );
+            entries.push(entry);
+        }
+    }
+
+    if entries.is_empty() {
+        print_warning("No files marked for sitemap.xml generation.");
+        return Ok(());
+    }
+
+    let xml_content = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n{}\n</urlset>",
+        entries.join("\n")
+    );
+
+    // ... (rest of the file writing logic remains the same)
+    match fs::write(&sitemap_path, xml_content) {
+        Ok(_) => {
+            if args.verbose {
+                print_info(&format!("Successfully generated sitemap.xml at: {}", sitemap_path.display()));
+            }
+        }
+        Err(e) => {
+            print_error(&format!("Failed to write sitemap.xml: {}", e));
+            return Err(e);
+        }
+    }
+    
+    Ok(())
+}

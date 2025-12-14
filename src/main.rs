@@ -11,8 +11,9 @@ use config::Args;
 use args::parse_args;
 use io::{read_template, print_info, print_error};
 use site_map::build_site_map;
-use processing::{process_directory, load_all_metadata_from_files}; // load_all_metadata_from_files is now correctly imported
-use nav::generate_all_index_files;
+use processing::{process_directory, load_all_metadata_from_files, generate_sitemap_xml};
+use nav::{generate_all_index_files};
+
 
 fn main() -> std::io::Result<()> {
     let args: Args = parse_args();
@@ -55,6 +56,8 @@ fn main() -> std::io::Result<()> {
     process_directory(&args, &site_map, &metadata_map, &args.source, &html_template)?;
     
     generate_all_index_files(&args, &site_map, &metadata_map, &html_template)?;
+
+    generate_sitemap_xml(&args, &metadata_map)?;
 
     println!("Done processing directories.");
     Ok(())

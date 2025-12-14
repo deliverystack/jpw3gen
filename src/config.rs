@@ -2,7 +2,7 @@ use std::{
     path::PathBuf,
     collections::{HashSet, BTreeMap},
 };
-use serde::{Deserialize, Serialize}; // Added imports
+use serde::{Deserialize, Serialize}; // Make sure these are imported
 
 // Metadata for a page (file) extracted from an optional JSON block at the end of markdown files
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
@@ -13,6 +13,11 @@ pub struct PageMetadata {
     pub exclude_from_nav: Option<bool>,
     pub keep_json_in_content: Option<bool>,
     pub sort_key: Option<String>, 
+    
+    // NEW: Sitemap fields
+    pub include_in_sitemap: Option<bool>,
+    pub sitemap_changefreq: Option<String>,
+    pub sitemap_priority: Option<f32>, // New dedicated key for priority (0.0 to 1.0)
 }
 
 pub type MetadataMap = BTreeMap<PathBuf, PageMetadata>;

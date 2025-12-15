@@ -50,5 +50,11 @@ cp $SOURCE/styles.css $SOURCE/favicon.ico $TARGET
 cp $SOURCE/template.html $SOURCE/styles.css $GEN
 
 if [ $CLEANUP -eq 1 ]; then
-    $GEN/jpw3hist.sh 
+    cd $TARGET
+    git checkout --orphan latest_branch
+    git add -A
+    git commit -am "history of generated files truncated to save storage space"
+    git branch -D main
+    git branch -m main
+    git push -f origin main
 fi

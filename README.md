@@ -85,3 +85,4 @@ Browse to:
 - --debug N for verbosity level
 - exlcude favion from nav
 - confirm nav sort sorts by nav title when present, not file name, etc.
+- navigation sorting seems to not work, for example articles/2025/May

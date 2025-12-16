@@ -75,14 +75,10 @@ Browse to:
 - Apply ideas from https://github.com/deliverystack/wink/blob/main/wince to jpw3gen.sh
 - Documentation including features
 - Refactoring, cleanup, and comment code
-- Nav has issues.
 - Comment rust code.
 - Document features (possibly using ChatGPT conversation?).
 - Report links to deliverystack for update.
-- It seems to ignore index.md in directories, for example "exclude_from_nav": true. Maybe index shouldn't appear in nav.
-- Generate Sitemap.xml and optionally robots.txt (using JSON)
+- Generate robots.txt
 - --debug N for verbosity level
-- exlcude favion from nav
-- confirm nav sort sorts by nav title when present, not file name, etc.
 - navigation sorting seems to not work, for example articles/2025/May
 - Storing the entire nav in every HTML file requires too much generation and makes the files to big and slow.

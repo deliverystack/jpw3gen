@@ -173,6 +173,27 @@ fn build_nav_tree(site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_pa
     }
 }
 
+fn should_render_branch(item_path: &Path, current_path: &Path) -> bool {
+    // Always render root level items
+    if item_path.components().count() <= 1 {
+        return true;
+    }
+    
+    // Render if this directory is on the path to the current page
+    if current_path.starts_with(item_path) {
+        return true;
+    }
+    
+    // Render siblings (items in the same directory as current page)
+    if let (Some(item_parent), Some(current_parent)) = (item_path.parent(), current_path.parent()) {
+        if item_parent == current_parent {
+            return true;
+        }
+    }
+    
+    false
+}
+
 fn nav_tree_to_html(nav_item: &NavItem, current_rel_path: &Path, site_map: &SiteMap, args: &Args, is_root: bool) -> String {
     use NavItem::*;
     match nav_item {
@@ -189,6 +210,20 @@ fn nav_tree_to_html(nav_item: &NavItem, current_rel_path: &Path, site_map: &Site
         }
         Directory { rel_path, name, children } => {
             let mut html = String::new();
+            
+            // Check if we should render this branch at all
+            if !is_root && !should_render_branch(rel_path, current_rel_path) {
+                // For branches not on the current path, just show a collapsed link
+                let site_root_path = if rel_path.as_os_str().is_empty() {
+                    PathBuf::from("/index.md")
+                } else {
+                    PathBuf::from("/").join(rel_path).join("index.md")
+                };
+                let index_link_path = rewrite_link_to_relative(current_rel_path, &site_root_path, site_map, false);
+                
+                return format!("<li class=\"pruned-branch\"><details><summary><a href=\"{}\">{}</a></summary></details></li>", 
+                    index_link_path, name);            
+            }
             
             // Determine the link for this directory's index page
             let index_link_path = {
@@ -222,7 +257,6 @@ fn nav_tree_to_html(nav_item: &NavItem, current_rel_path: &Path, site_map: &Site
             } else if !children.is_empty() {
                 html.push_str(&format!("<li{}>", li_class)); 
                 html.push_str(&format!("<details {}>", if is_open { "open" } else { "" }));
-                // Uses the updated 'name' which now contains nav_title
                 html.push_str(&format!("<summary><a{} href=\"{}\">{}</a></summary>", summary_class, index_link_path, name)); 
                 html.push_str("<ul>");
             }
@@ -243,7 +277,7 @@ fn nav_tree_to_html(nav_item: &NavItem, current_rel_path: &Path, site_map: &Site
                 html.push_str("<li class=\"nav-separator\"></li>");
             }
             
-            // Process Files
+            // Process Files (only if we're rendering this branch)
             for (_, child) in children.iter() {
                 if let NavItem::File { .. } = child {
                     html.push_str(&nav_tree_to_html(child, current_rel_path, site_map, args, false));

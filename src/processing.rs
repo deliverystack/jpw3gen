@@ -429,7 +429,7 @@ pub fn process_markdown_events<'a>(
                 } else if is_external {
                     // If it is an external link, we use a custom target="_blank" HTML tag
                     // FIX: Remove the title attribute insertion
-                    let html_tag_start = format!("<a href=\"{}\" target=\"_blank\">", dest);
+                    let html_tag_start = format!("<a href=\"{}\" target=\"_blank\" rel=\"noopener noreferrer\">", dest);
                     events.push(Event::Html(html_tag_start.into()));
                 } else {
                     events.push(Event::Start(Tag::Link(link_type, dest, title_attr)));
@@ -646,9 +646,16 @@ pub fn convert_urls_to_anchors(html: &str) -> String {
         if !in_anchor {
             // Add text before the URL
             result.push_str(&html[last_pos..start]);
+
             // Add the URL as an anchor
             let url = url_match.as_str();
-            result.push_str(&format!("<a href=\"{}\">{}</a>", url, url));
+            let is_external = url.starts_with("http://") || url.starts_with("https://");
+            if is_external {
+                result.push_str(&format!("<a href=\"{}\" target=\"_blank\" rel=\"noopener noreferrer\">{}</a>", url, url));
+            } else {
+                result.push_str(&format!("<a href=\"{}\">{}</a>", url, url));
+            }
+
             last_pos = end;
         }
     }

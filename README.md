@@ -72,7 +72,6 @@ Browse to:
 
 ## Outstanding Issues
 
-- Open external URLs in new tabs.
 - Apply ideas from https://github.com/deliverystack/wink/blob/main/wince to jpw3gen.sh
 - Documentation including features
 - Refactoring, cleanup, and comment code

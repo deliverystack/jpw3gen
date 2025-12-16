@@ -273,15 +273,15 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, metadata: &PageMetadata
     let parent_dir = path_source.parent().unwrap_or_else(|| Path::new(""));
     
     // Check for internal broken links
-    let link_regex = Regex::new(r"\[[^\]]+\]\(([^)]+\.md)\)").unwrap();
+    let link_regex = Regex::new(r"\[[^\]]+\]\(([^):]+\.md)\)").unwrap();
     for caps in link_regex.captures_iter(&content_for_normalization) {
         let link_target = &caps[1];
         let target_path = parent_dir.join(link_target);
         if !target_path.exists() {
             print_warning(&format!("Broken link detected in {}: Link to non-existent file '{}'", path_rel.display(), link_target));
         }
-    }
-    
+    }    
+
     // Check for broken image links
     let image_link_regex = Regex::new(r"!\[[^\]]*\]\(([^)]+\.(png|jpe?g|gif|svg))\)").unwrap();
     for caps in image_link_regex.captures_iter(&content_for_normalization) {

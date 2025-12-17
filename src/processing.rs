@@ -25,14 +25,9 @@ pub fn load_all_metadata_from_files(args: &Args, site_map: &SiteMap) -> io::Resu
                 Err(e) => print_error(&format!("Failed to parse metadata in {}: {}", rel_path.display(), e)),
             }
         }
-        
-        // Compute the title: nav_title > page_title > first heading > filename
-        let computed_title = if let Some(nav_title) = &metadata.nav_title {
-            nav_title.clone()
-        } else if let Some(page_title) = &metadata.page_title {
-            page_title.clone()
-        } else {
-            // Extract first heading from markdown content
+
+        let computed_title = {
+            // First, try to extract the first heading from markdown content
             let content_without_json = json_regex.replace_all(&markdown_input, |caps: &regex::Captures| {
                 caps.get(2).map_or("", |m| m.as_str()).to_string()
             }).to_string();
@@ -50,14 +45,19 @@ pub fn load_all_metadata_from_files(args: &Args, site_map: &SiteMap) -> io::Resu
                         first_heading.push_str(&text);
                     }
                     Event::End(Tag::Heading(..)) if in_heading => {
-                        break; // Got the first heading, stop
+                        break;
                     }
                     _ => {}
                 }
             }
             
+            // Priority: first heading > page_title > nav_title > filename
             if !first_heading.is_empty() {
                 first_heading
+            } else if let Some(page_title) = &metadata.page_title {
+                page_title.clone()
+            } else if let Some(nav_title) = &metadata.nav_title {
+                nav_title.clone()
             } else {
                 // Fallback to filename
                 rel_path.file_stem()

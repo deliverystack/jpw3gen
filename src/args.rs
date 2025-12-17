@@ -1,7 +1,7 @@
-use std::path::PathBuf;
-use clap::{Arg, Command};
 use crate::config::Args;
 use crate::io::print_error;
+use clap::{Arg, Command};
+use std::path::PathBuf;
 
 /// parse command line arguments
 pub fn parse_args() -> Args {
@@ -11,7 +11,7 @@ pub fn parse_args() -> Args {
         .about("Create a static website from a directory structure containing markdown files.")
         .arg(
             Arg::new("source")
-                .short('s') 
+                .short('s')
                 .long("source")
                 .value_parser(clap::value_parser!(String))
                 .value_name("SOURCE_DIR")
@@ -19,7 +19,7 @@ pub fn parse_args() -> Args {
         )
         .arg(
             Arg::new("target")
-                .short('t') 
+                .short('t')
                 .long("target")
                 .value_parser(clap::value_parser!(String))
                 .required(true)

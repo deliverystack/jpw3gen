@@ -1,40 +1,53 @@
-use std::{
-    fs,
-    io,
-    path::{Path, PathBuf},
-    collections::BTreeMap
-};
-use regex::Regex; 
-use pulldown_cmark::Parser;
+use crate::config::{Args, MetadataMap, NavItem, NavTree, PageMetadata, SiteMap};
 use crate::io::{collect_all_dirs_robust, print_error, print_info};
-use crate::processing::{rewrite_link_to_relative, process_markdown_events, format_html_page, get_last_modified_date}; 
-use crate::config::{Args, NavItem, NavTree, SiteMap, MetadataMap, PageMetadata}; 
+use crate::processing::{
+    format_html_page, get_last_modified_date, process_markdown_events, rewrite_link_to_relative,
+};
+use pulldown_cmark::Parser;
+use regex::Regex;
+use std::{
+    collections::BTreeMap,
+    fs, io,
+    path::{Path, PathBuf},
+};
 
-pub fn generate_navigation_html(args: &Args, site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_path: &Path) -> String { 
+pub fn generate_navigation_html(
+    args: &Args,
+    site_map: &SiteMap,
+    metadata_map: &MetadataMap,
+    current_rel_path: &Path,
+) -> String {
     let nav_tree = build_nav_tree(site_map, metadata_map, current_rel_path);
     nav_tree_to_html(&nav_tree, current_rel_path, site_map, args, true)
 }
 
-fn build_nav_tree(site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_path: &Path) -> NavItem {
+fn build_nav_tree(
+    site_map: &SiteMap,
+    metadata_map: &MetadataMap,
+    current_rel_path: &Path,
+) -> NavItem {
     let mut root_children: NavTree = BTreeMap::new();
     let current_html_path = current_rel_path.with_extension("html");
-    
+
     // Initial sort ensures consistent starting order for paths without explicit metadata
     let mut sorted_paths: Vec<PathBuf> = site_map.iter().cloned().collect();
-    sorted_paths.sort(); 
+    sorted_paths.sort();
 
     // Create a persistent default value outside the loop
     let default_metadata = PageMetadata::default();
 
     // Directory Exclusion Pre-processing
     let mut excluded_dirs = std::collections::HashSet::new();
-    
-    for rel_path in site_map.iter().filter(|p| p.file_name().map_or(false, |n| n == "index.md")) {
+
+    for rel_path in site_map
+        .iter()
+        .filter(|p| p.file_name().is_some_and(|n| n == "index.md"))
+    {
         let metadata = metadata_map.get(rel_path).unwrap_or(&default_metadata);
-        
+
         if metadata.exclude_from_nav.unwrap_or(false) {
             if let Some(parent_dir) = rel_path.parent() {
-                excluded_dirs.insert(parent_dir.to_path_buf()); 
+                excluded_dirs.insert(parent_dir.to_path_buf());
             }
         }
     }
@@ -61,18 +74,22 @@ fn build_nav_tree(site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_pa
         // 3. Global Exclusion for Non-Content Assets (Added to exclude files like favicon.ico, styles.css)
         let file_name = rel_path.file_name().unwrap_or_default();
         let file_name_str = file_name.to_string_lossy().to_lowercase();
-        
+
         // Explicit list of files to skip - see a similar list in processing.rs - and related logic in jpw3gen.sh
         const EXCLUDED_FILE_NAMES: [&str; 2] = ["template.html", "favicon.ico"];
 
         // Explicit list of extensions to skip - see a similar list in processing.rs - and related logic in jpw3gen.sh
-        const EXCLUDED_EXTENSIONS: [&str; 4] = ["css", "js", "xml", "html"]; 
+        const EXCLUDED_EXTENSIONS: [&str; 4] = ["css", "js", "xml", "html"];
 
         if EXCLUDED_FILE_NAMES.contains(&file_name_str.as_str()) {
             continue;
         }
 
-        if let Some(ext) = rel_path.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase()) {
+        if let Some(ext) = rel_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_lowercase())
+        {
             if EXCLUDED_EXTENSIONS.contains(&ext.as_str()) {
                 continue;
             }
@@ -81,88 +98,100 @@ fn build_nav_tree(site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_pa
 
         // 4. Always exclude non-root index.md files from appearing as "Files" in the tree
         //    (They are handled as the Directory link itself)
-        let is_index_md = rel_path.file_name().map_or(false, |n| n == "index.md");
-        let is_root = rel_path.parent().map_or(true, |p| p.as_os_str().is_empty()); 
+        let is_index_md = rel_path.file_name().is_some_and(|n| n == "index.md");
+        let is_root = rel_path.parent().is_none_or(|p| p.as_os_str().is_empty());
 
         if is_index_md && !is_root {
             continue;
         }
 
         // Convert path components to strings safely
-        let components: Vec<String> = rel_path.components()
+        let components: Vec<String> = rel_path
+            .components()
             .filter_map(|c| match c {
                 std::path::Component::Normal(os_str) => Some(os_str.to_string_lossy().to_string()),
                 _ => None,
             })
             .collect();
 
-        if components.is_empty() { continue; }
-        
+        if components.is_empty() {
+            continue;
+        }
+
         // 1. Determine the display name (used for rendering FILES)
         let file_name = if let Some(title) = metadata.nav_title.clone() {
             title
         } else {
-            rel_path.file_stem()
+            rel_path
+                .file_stem()
                 .and_then(|stem| stem.to_str())
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| components.last().unwrap().clone())
         };
-        
+
         // 2. Determine the insertion key (used for sorting)
-        let primary_sort_key = metadata.sort_key.as_ref().map(|s| s.to_string())
+        let primary_sort_key = metadata
+            .sort_key
+            .as_ref()
+            .map(|s| s.to_string())
             .unwrap_or_else(|| file_name.clone());
 
-        let final_sort_key_for_map = primary_sort_key.to_lowercase(); 
+        let final_sort_key_for_map = primary_sort_key.to_lowercase();
 
         let insertion_key = format!("{}--{}", final_sort_key_for_map, rel_path.to_string_lossy());
-        
+
         // Start traversal from the root map
         let mut current_map = &mut root_children;
         let mut path_builder = PathBuf::new();
-        let mut is_at_root_level = true; 
+        let mut is_at_root_level = true;
 
         // Iterate through all components except the last one (the file)
         for i in 0..components.len() - 1 {
             let dir_name_str = &components[i];
             path_builder.push(dir_name_str);
-            
+
             is_at_root_level = false;
 
-            // Get or create the Directory item. 
+            // Get or create the Directory item.
             let entry = current_map.entry(dir_name_str.clone()).or_insert_with(|| {
-                 // --- FIX START: Check index.md for directory title ---
-                 let index_md_path = path_builder.join("index.md");
-                 
-                 // Default to the directory folder name
-                 let mut dir_display_name = dir_name_str.clone();
+                // --- FIX START: Check index.md for directory title ---
+                let index_md_path = path_builder.join("index.md");
 
-                 // Check if we have metadata for this directory's index.md
-                 if let Some(dir_metadata) = metadata_map.get(&index_md_path) {
-                     if let Some(title) = &dir_metadata.nav_title {
-                         dir_display_name = title.clone();
-                     }
-                 }
-                 // --- FIX END ---
+                // Default to the directory folder name
+                let mut dir_display_name = dir_name_str.clone();
 
-                 NavItem::Directory {
-                     rel_path: path_builder.clone(),
-                     name: dir_display_name, // Now uses the nav_title if available
-                     children: BTreeMap::new(),
-                 }
+                // Check if we have metadata for this directory's index.md
+                if let Some(dir_metadata) = metadata_map.get(&index_md_path) {
+                    if let Some(title) = &dir_metadata.nav_title {
+                        dir_display_name = title.clone();
+                    }
+                }
+                // --- FIX END ---
+
+                NavItem::Directory {
+                    rel_path: path_builder.clone(),
+                    name: dir_display_name, // Now uses the nav_title if available
+                    children: BTreeMap::new(),
+                }
             });
 
             // Update reference to the children of the current directory
-            current_map = entry.get_children_mut().expect("Item should be a directory");
+            current_map = entry
+                .get_children_mut()
+                .expect("Item should be a directory");
         }
 
         // 3. Insert the File item using the composite insertion_key
         if !is_at_root_level || components.len() == 1 {
             let is_current = rel_path.with_extension("html") == current_html_path;
-            current_map.insert(insertion_key, NavItem::File {
-                rel_path: rel_path.clone(),
-                name: file_name,
-                is_current,
-            });
+            current_map.insert(
+                insertion_key,
+                NavItem::File {
+                    rel_path: rel_path.clone(),
+                    name: file_name,
+                    is_current,
+                },
+            );
         }
     }
 
@@ -178,39 +207,60 @@ fn should_render_branch(item_path: &Path, current_path: &Path) -> bool {
     if item_path.components().count() <= 1 {
         return true;
     }
-    
+
     // Render if this directory is on the path to the current page
     if current_path.starts_with(item_path) {
         return true;
     }
-    
+
     // Render siblings (items in the same directory as current page)
     if let (Some(item_parent), Some(current_parent)) = (item_path.parent(), current_path.parent()) {
         if item_parent == current_parent {
             return true;
         }
     }
-    
+
     false
 }
 
-fn nav_tree_to_html(nav_item: &NavItem, current_rel_path: &Path, site_map: &SiteMap, args: &Args, is_root: bool) -> String {
+fn nav_tree_to_html(
+    nav_item: &NavItem,
+    current_rel_path: &Path,
+    site_map: &SiteMap,
+    args: &Args,
+    is_root: bool,
+) -> String {
     use NavItem::*;
     match nav_item {
-        File { rel_path, name, is_current } => {
+        File {
+            rel_path,
+            name,
+            is_current,
+        } => {
             let site_root_path = PathBuf::from("/").join(rel_path);
-            let link_path = rewrite_link_to_relative(current_rel_path, &site_root_path, site_map, false);
-            let title_attr = rel_path.to_string_lossy(); 
+            let link_path =
+                rewrite_link_to_relative(current_rel_path, &site_root_path, site_map, false);
+            let title_attr = rel_path.to_string_lossy();
 
             if *is_current {
-                format!("<li class=\"current-file\" title=\"{}\">{}</li>", title_attr, name)
+                format!(
+                    "<li class=\"current-file\" title=\"{}\">{}</li>",
+                    title_attr, name
+                )
             } else {
-                format!("<li><a class=\"nav-link\" href=\"{}\" title=\"{}\">{}</a></li>", link_path, title_attr, name)
+                format!(
+                    "<li><a class=\"nav-link\" href=\"{}\" title=\"{}\">{}</a></li>",
+                    link_path, title_attr, name
+                )
             }
         }
-        Directory { rel_path, name, children } => {
+        Directory {
+            rel_path,
+            name,
+            children,
+        } => {
             let mut html = String::new();
-            
+
             // Check if we should render this branch at all
             if !is_root && !should_render_branch(rel_path, current_rel_path) {
                 // For branches not on the current path, just show a collapsed link
@@ -219,12 +269,15 @@ fn nav_tree_to_html(nav_item: &NavItem, current_rel_path: &Path, site_map: &Site
                 } else {
                     PathBuf::from("/").join(rel_path).join("index.md")
                 };
-                let index_link_path = rewrite_link_to_relative(current_rel_path, &site_root_path, site_map, false);
-                
-                return format!("<li><details><summary><a href=\"{}\">{}</a></summary></details></li>", 
-                    index_link_path, name);
+                let index_link_path =
+                    rewrite_link_to_relative(current_rel_path, &site_root_path, site_map, false);
+
+                return format!(
+                    "<li><details><summary><a href=\"{}\">{}</a></summary></details></li>",
+                    index_link_path, name
+                );
             }
-            
+
             // Determine the link for this directory's index page
             let index_link_path = {
                 let site_root_path = if rel_path.as_os_str().is_empty() {
@@ -236,28 +289,32 @@ fn nav_tree_to_html(nav_item: &NavItem, current_rel_path: &Path, site_map: &Site
             };
 
             let current_html_path = current_rel_path.with_extension("html");
-            let is_open = current_rel_path.starts_with(rel_path) && !rel_path.as_os_str().is_empty();
+            let is_open =
+                current_rel_path.starts_with(rel_path) && !rel_path.as_os_str().is_empty();
             let index_html_path = rel_path.join("index.md").with_extension("html");
             let is_current_page = current_html_path == index_html_path;
-            
-            let li_class = if is_open || is_current_page { 
-                " class=\"current-branch\"" 
-            } else { 
-                "" 
+
+            let li_class = if is_open || is_current_page {
+                " class=\"current-branch\""
+            } else {
+                ""
             };
-            
-            let summary_class = if is_current_page { 
-                " class=\"current-summary\"" 
-            } else { 
-                "" 
+
+            let summary_class = if is_current_page {
+                " class=\"current-summary\""
+            } else {
+                ""
             };
 
             if is_root {
                 html.push_str("<ul>");
             } else if !children.is_empty() {
-                html.push_str(&format!("<li{}>", li_class)); 
+                html.push_str(&format!("<li{}>", li_class));
                 html.push_str(&format!("<details {}>", if is_open { "open" } else { "" }));
-                html.push_str(&format!("<summary><a{} href=\"{}\">{}</a></summary>", summary_class, index_link_path, name)); 
+                html.push_str(&format!(
+                    "<summary><a{} href=\"{}\">{}</a></summary>",
+                    summary_class, index_link_path, name
+                ));
                 html.push_str("<ul>");
             }
 
@@ -265,29 +322,43 @@ fn nav_tree_to_html(nav_item: &NavItem, current_rel_path: &Path, site_map: &Site
             let mut has_directories = false;
             for (_, child) in children.iter() {
                 if let NavItem::Directory { .. } = child {
-                    html.push_str(&nav_tree_to_html(child, current_rel_path, site_map, args, false));
+                    html.push_str(&nav_tree_to_html(
+                        child,
+                        current_rel_path,
+                        site_map,
+                        args,
+                        false,
+                    ));
                     has_directories = true;
                 }
             }
-            
+
             // Check for files to add separator
-            let has_files = children.iter().any(|(_, child)| matches!(child, NavItem::File { .. }));
-            
+            let has_files = children
+                .iter()
+                .any(|(_, child)| matches!(child, NavItem::File { .. }));
+
             if has_directories && has_files {
                 html.push_str("<li class=\"nav-separator\"></li>");
             }
-            
+
             // Process Files (only if we're rendering this branch)
             for (_, child) in children.iter() {
                 if let NavItem::File { .. } = child {
-                    html.push_str(&nav_tree_to_html(child, current_rel_path, site_map, args, false));
+                    html.push_str(&nav_tree_to_html(
+                        child,
+                        current_rel_path,
+                        site_map,
+                        args,
+                        false,
+                    ));
                 }
             }
-            
+
             if is_root {
                 html.push_str("</ul>");
             } else if !children.is_empty() {
-                html.push_str("</ul>"); 
+                html.push_str("</ul>");
                 html.push_str("</details>");
                 html.push_str("</li>");
             }
@@ -298,17 +369,17 @@ fn nav_tree_to_html(nav_item: &NavItem, current_rel_path: &Path, site_map: &Site
 }
 
 pub fn generate_all_index_files(
-    args: &Args, 
-    site_map: &SiteMap, 
-    metadata_map: &MetadataMap, 
-    html_template: &str
+    args: &Args,
+    site_map: &SiteMap,
+    metadata_map: &MetadataMap,
+    html_template: &str,
 ) -> io::Result<()> {
     let dirs_to_index = collect_all_dirs_robust(&args.source)?;
     let mut sorted_dirs: Vec<PathBuf> = dirs_to_index.into_iter().collect();
     sorted_dirs.sort();
-    
+
     let default_index_metadata = PageMetadata::default();
-    
+
     let json_regex = Regex::new(r"(?s)```json\s*(\{.*?\})\s*```\s*(\s*)$").unwrap();
 
     for rel_dir_path in sorted_dirs {
@@ -317,11 +388,16 @@ pub fn generate_all_index_files(
         let path_target = path_target_dir.join("index.html");
 
         let has_index_md = site_map.contains(&index_md_path);
-        let index_metadata = metadata_map.get(&index_md_path).unwrap_or(&default_index_metadata);
+        let index_metadata = metadata_map
+            .get(&index_md_path)
+            .unwrap_or(&default_index_metadata);
 
         if has_index_md && index_metadata.avoid_generation.unwrap_or(false) {
             if args.verbose {
-                print_info(&format!("Skipped (Avoid Generation): {}", index_md_path.display()));
+                print_info(&format!(
+                    "Skipped (Avoid Generation): {}",
+                    index_md_path.display()
+                ));
             }
             continue;
         }
@@ -329,15 +405,22 @@ pub fn generate_all_index_files(
         let (title, content) = if has_index_md {
             let path_source = args.source.join(&index_md_path);
             let markdown_input = fs::read_to_string(&path_source)?;
-            
-            let content_without_json = json_regex.replace_all(&markdown_input, |caps: &regex::Captures| {
-                caps.get(2).map_or("", |m| m.as_str()).to_string()
-            }).to_string();
+
+            let content_without_json = json_regex
+                .replace_all(&markdown_input, |caps: &regex::Captures| {
+                    caps.get(2).map_or("", |m| m.as_str()).to_string()
+                })
+                .to_string();
 
             let parser = Parser::new(&content_without_json);
-            let (html_output, title_from_h1) = process_markdown_events(args, site_map, metadata_map, parser, &index_md_path);
-    
-            let final_title = index_metadata.page_title.as_ref().unwrap_or(&title_from_h1).clone();
+            let (html_output, title_from_h1) =
+                process_markdown_events(args, site_map, metadata_map, parser, &index_md_path);
+
+            let final_title = index_metadata
+                .page_title
+                .as_ref()
+                .unwrap_or(&title_from_h1)
+                .clone();
             (final_title, html_output)
         } else {
             let default_title = if rel_dir_path.as_os_str().is_empty() {
@@ -353,7 +436,7 @@ pub fn generate_all_index_files(
         } else {
             rel_dir_path.to_string_lossy().into_owned()
         };
-        
+
         let source_path_display = if source_path_rel_str.is_empty() {
             "/".to_string()
         } else {
@@ -365,38 +448,44 @@ pub fn generate_all_index_files(
         } else {
             args.source.join(&rel_dir_path)
         };
-        
+
         let nav_rel_path = if has_index_md {
             index_md_path.clone()
         } else {
-            rel_dir_path.join("index.md") 
+            rel_dir_path.join("index.md")
         };
-        
+
         let nav_html = generate_navigation_html(args, site_map, metadata_map, &nav_rel_path);
-        
+
         let last_modified = get_last_modified_date(&source_path_real);
         let default_content = if content.is_empty() {
-            format!("<h1>{}</h1><p>Use the links on the left to access content.</p>", title)
+            format!(
+                "<h1>{}</h1><p>Use the links on the left to access content.</p>",
+                title
+            )
         } else {
             content
         };
 
         let final_html = format_html_page(
-            &title, 
-            &source_path_display, 
+            &title,
+            &source_path_display,
             &last_modified,
-            &nav_html, 
-            &default_content, 
-            html_template
+            &nav_html,
+            &default_content,
+            html_template,
         );
 
         fs::create_dir_all(&path_target_dir)?;
-        
-         if path_target.exists() {
+
+        if path_target.exists() {
             if let Ok(existing_content) = fs::read_to_string(&path_target) {
                 if existing_content == final_html {
                     if args.verbose {
-                        print_info(&format!("Skipped (Unchanged Index HTML): {}", path_target.display()));
+                        print_info(&format!(
+                            "Skipped (Unchanged Index HTML): {}",
+                            path_target.display()
+                        ));
                     }
                     continue;
                 }
@@ -406,11 +495,18 @@ pub fn generate_all_index_files(
         match fs::write(&path_target, final_html) {
             Ok(_) => {
                 if args.verbose {
-                    print_info(&format!("Successfully generated index.html at: {}", path_target.display()));
+                    print_info(&format!(
+                        "Successfully generated index.html at: {}",
+                        path_target.display()
+                    ));
                 }
             }
             Err(e) => {
-                print_error(&format!("Failed to write index.html to {}: {}", path_target.display(), e));
+                print_error(&format!(
+                    "Failed to write index.html to {}: {}",
+                    path_target.display(),
+                    e
+                ));
                 return Err(e);
             }
         }

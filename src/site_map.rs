@@ -1,9 +1,9 @@
-use std::{fs, io, path::Path, collections::HashSet};
 use crate::config::SiteMap;
+use std::{collections::HashSet, fs, io, path::Path};
 
 pub fn build_site_map(source_dir: &Path) -> io::Result<SiteMap> {
     let mut site_map = HashSet::new();
-    
+
     fn traverse(dir: &Path, source_root: &Path, map: &mut SiteMap) -> io::Result<()> {
         for entry in fs::read_dir(dir)? {
             let entry = entry?;

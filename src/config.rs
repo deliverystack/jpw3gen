@@ -1,8 +1,8 @@
-use std::{
-    path::PathBuf,
-    collections::{HashSet, BTreeMap},  // REMOVE HashMap
-};
 use serde::{Deserialize, Serialize};
+use std::{
+    collections::{BTreeMap, HashSet}, // REMOVE HashMap
+    path::PathBuf,
+};
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct PageMetadata {
@@ -11,13 +11,13 @@ pub struct PageMetadata {
     pub avoid_generation: Option<bool>,
     pub exclude_from_nav: Option<bool>,
     pub keep_json_in_content: Option<bool>,
-    pub sort_key: Option<String>, 
-    
+    pub sort_key: Option<String>,
+
     // Sitemap fields
     pub include_in_sitemap: Option<bool>,
     pub sitemap_changefreq: Option<String>,
     pub sitemap_priority: Option<f32>,
-    
+
     // NEW: Computed title (extracted from heading or metadata)
     pub computed_title: Option<String>,
 }
@@ -31,7 +31,7 @@ pub enum NavItem {
         // Full relative path from the source root, e.g., "docs/about.md"
         rel_path: PathBuf,
         // The display name (e.g., "about.html")
-        name: String, 
+        name: String,
         is_current: bool,
     },
     Directory {
@@ -40,7 +40,7 @@ pub enum NavItem {
         // The display name (e.g., "docs")
         name: String,
         // Map of children, keyed by name for sorting
-        children: BTreeMap<String, NavItem>, 
+        children: BTreeMap<String, NavItem>,
     },
 }
 
@@ -62,14 +62,13 @@ pub struct Args {
     pub verbose: bool,
 }
 
-pub type NavTree = BTreeMap<String, NavItem>; 
+pub type NavTree = BTreeMap<String, NavItem>;
 
 /// A global map of all files to easily check for links.
 pub type SiteMap = HashSet<PathBuf>;
 
 // for coloring console output
-pub const COLOR_RED: &str = "\x1b[31m";    
-pub const COLOR_YELLOW: &str = "\x1b[33m"; 
+pub const COLOR_RED: &str = "\x1b[31m";
+pub const COLOR_YELLOW: &str = "\x1b[33m";
 pub const COLOR_CYAN: &str = "\x1b[36m";
 pub const COLOR_RESET: &str = "\x1b[0m";
-

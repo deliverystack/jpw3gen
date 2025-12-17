@@ -6,9 +6,9 @@ use std::{
 };
 use regex::Regex; 
 use pulldown_cmark::Parser;
-use crate::config::{Args, NavItem, NavTree, SiteMap, MetadataMap, PageMetadata}; 
 use crate::io::{collect_all_dirs_robust, print_error, print_info};
 use crate::processing::{rewrite_link_to_relative, process_markdown_events, format_html_page, get_last_modified_date}; 
+use crate::config::{Args, NavItem, NavTree, SiteMap, MetadataMap, PageMetadata}; 
 
 pub fn generate_navigation_html(args: &Args, site_map: &SiteMap, metadata_map: &MetadataMap, current_rel_path: &Path) -> String { 
     let nav_tree = build_nav_tree(site_map, metadata_map, current_rel_path);
@@ -297,7 +297,12 @@ fn nav_tree_to_html(nav_item: &NavItem, current_rel_path: &Path, site_map: &Site
     }
 }
 
-pub fn generate_all_index_files(args: &Args, site_map: &SiteMap, metadata_map: &MetadataMap, html_template: &str) -> io::Result<()> {
+pub fn generate_all_index_files(
+    args: &Args, 
+    site_map: &SiteMap, 
+    metadata_map: &MetadataMap, 
+    html_template: &str
+) -> io::Result<()> {
     let dirs_to_index = collect_all_dirs_robust(&args.source)?;
     let mut sorted_dirs: Vec<PathBuf> = dirs_to_index.into_iter().collect();
     sorted_dirs.sort();
@@ -330,8 +335,8 @@ pub fn generate_all_index_files(args: &Args, site_map: &SiteMap, metadata_map: &
             }).to_string();
 
             let parser = Parser::new(&content_without_json);
-            let (html_output, title_from_h1) = process_markdown_events(args, site_map, parser, &index_md_path);
-            
+            let (html_output, title_from_h1) = process_markdown_events(args, site_map, metadata_map, parser, &index_md_path);
+    
             let final_title = index_metadata.page_title.as_ref().unwrap_or(&title_from_h1).clone();
             (final_title, html_output)
         } else {

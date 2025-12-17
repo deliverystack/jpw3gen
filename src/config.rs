@@ -1,10 +1,9 @@
 use std::{
     path::PathBuf,
-    collections::{HashSet, BTreeMap},
+    collections::{HashSet, BTreeMap},  // REMOVE HashMap
 };
-use serde::{Deserialize, Serialize}; // Make sure these are imported
+use serde::{Deserialize, Serialize};
 
-// Metadata for a page (file) extracted from an optional JSON block at the end of markdown files
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct PageMetadata {
     pub page_title: Option<String>,
@@ -14,10 +13,13 @@ pub struct PageMetadata {
     pub keep_json_in_content: Option<bool>,
     pub sort_key: Option<String>, 
     
-    // NEW: Sitemap fields
+    // Sitemap fields
     pub include_in_sitemap: Option<bool>,
     pub sitemap_changefreq: Option<String>,
-    pub sitemap_priority: Option<f32>, // New dedicated key for priority (0.0 to 1.0)
+    pub sitemap_priority: Option<f32>,
+    
+    // NEW: Computed title (extracted from heading or metadata)
+    pub computed_title: Option<String>,
 }
 
 pub type MetadataMap = BTreeMap<PathBuf, PageMetadata>;
@@ -52,7 +54,6 @@ impl NavItem {
     }
 }
 
-
 // Parsed from command line arguments
 #[derive(Debug)]
 pub struct Args {
@@ -71,3 +72,4 @@ pub const COLOR_RED: &str = "\x1b[31m";
 pub const COLOR_YELLOW: &str = "\x1b[33m"; 
 pub const COLOR_CYAN: &str = "\x1b[36m";
 pub const COLOR_RESET: &str = "\x1b[0m";
+

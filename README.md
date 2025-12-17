@@ -82,3 +82,4 @@ Browse to:
 - --debug N for verbosity level
 - navigation sorting seems to not work, for example articles/2025/May
 - Storing the entire nav in every HTML file requires too much generation and makes the files to big and slow.
+- Needs refactoring. Config.rs contains too much code, as does processing; some needs a new HTML library or something.

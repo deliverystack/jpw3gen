@@ -2,13 +2,12 @@ use std::{fs, io, path::{Path, PathBuf}, mem, collections::BTreeMap};
 use pulldown_cmark::{Parser, Options, Event, Tag, HeadingLevel, LinkType};
 use chrono::{DateTime, Utc};
 use serde_json; 
-
 use regex::Regex;
+
 use crate::config::{Args, SiteMap, PageMetadata, MetadataMap}; 
 use crate::io::{print_info, print_warning, print_error};
 use crate::nav::generate_navigation_html;
 
-// NEW FUNCTION: Loads and parses metadata from all markdown files.
 pub fn load_all_metadata_from_files(args: &Args, site_map: &SiteMap) -> io::Result<MetadataMap> {
     let mut metadata_map = BTreeMap::new();
     let json_regex = Regex::new(r"(?s)```json\s*(\{.*?\})\s*```\s*(\s*)$").unwrap();
@@ -18,6 +17,7 @@ pub fn load_all_metadata_from_files(args: &Args, site_map: &SiteMap) -> io::Resu
         let markdown_input = fs::read_to_string(&path_source)?;
         let mut metadata = PageMetadata::default();
 
+        // Parse JSON metadata if present
         if let Some(caps) = json_regex.captures(&markdown_input) {
             let json_str = &caps[1];
             match serde_json::from_str::<PageMetadata>(json_str) {
@@ -25,12 +25,106 @@ pub fn load_all_metadata_from_files(args: &Args, site_map: &SiteMap) -> io::Resu
                 Err(e) => print_error(&format!("Failed to parse metadata in {}: {}", rel_path.display(), e)),
             }
         }
+        
+        // Compute the title: nav_title > page_title > first heading > filename
+        let computed_title = if let Some(nav_title) = &metadata.nav_title {
+            nav_title.clone()
+        } else if let Some(page_title) = &metadata.page_title {
+            page_title.clone()
+        } else {
+            // Extract first heading from markdown content
+            let content_without_json = json_regex.replace_all(&markdown_input, |caps: &regex::Captures| {
+                caps.get(2).map_or("", |m| m.as_str()).to_string()
+            }).to_string();
+            
+            let parser = Parser::new(&content_without_json);
+            let mut first_heading = String::new();
+            let mut in_heading = false;
+            
+            for event in parser {
+                match event {
+                    Event::Start(Tag::Heading(..)) => {
+                        in_heading = true;
+                    }
+                    Event::Text(text) if in_heading => {
+                        first_heading.push_str(&text);
+                    }
+                    Event::End(Tag::Heading(..)) if in_heading => {
+                        break; // Got the first heading, stop
+                    }
+                    _ => {}
+                }
+            }
+            
+            if !first_heading.is_empty() {
+                first_heading
+            } else {
+                // Fallback to filename
+                rel_path.file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| rel_path.to_string_lossy().to_string())
+            }
+        };
+        
+        metadata.computed_title = Some(computed_title);
         metadata_map.insert(rel_path.clone(), metadata);
     }
+    
     Ok(metadata_map)
 }
 
-pub fn process_directory(args: &Args, site_map: &SiteMap, metadata_map: &MetadataMap, current_dir_source: &Path, html_template: &str) -> io::Result<()> {
+pub fn get_link_title(
+    from_path_rel: &Path,
+    link_target: &Path,
+    metadata_map: &MetadataMap,
+    site_map: &SiteMap,
+    verbose: bool,
+) -> Option<String> {
+    let root_rel_path = resolve_link_path(from_path_rel, link_target);
+    let target_path_rel = root_rel_path.strip_prefix("/").unwrap_or(Path::new(""));
+    
+    let mut md_path = target_path_rel.to_path_buf();
+    
+    // Convert HTML extension to MD
+    if md_path.extension().map_or(false, |ext| ext == "html") {
+        md_path.set_extension("md");
+    } 
+    // Handle directory/no extension -> index.md
+    else if md_path.is_dir() || md_path.extension().is_none() || target_path_rel.to_string_lossy().is_empty() {
+        let index_path = md_path.join("index.md");
+        if site_map.contains(&index_path) {
+            md_path = index_path;
+        } else {
+            md_path = md_path.join("index.md");
+        }
+    }
+    
+    if verbose {
+        print_info(&format!("Looking up title for: {} (resolved to: {})", link_target.display(), md_path.display()));
+    }
+    
+    let result = metadata_map.get(&md_path)
+        .and_then(|meta| meta.computed_title.clone());
+    
+    if verbose {
+        if let Some(ref title) = result {
+            print_info(&format!("  Found title: '{}'", title));
+        } else {
+            print_warning(&format!("  No title found for: {}", md_path.display()));
+        }
+    }
+    
+    result
+}
+
+pub fn process_directory(
+    args: &Args, 
+    site_map: &SiteMap, 
+    metadata_map: &MetadataMap, 
+    current_dir_source: &Path, 
+    html_template: &str
+) -> io::Result<()> {
     let current_dir_rel = current_dir_source.strip_prefix(&args.source).unwrap_or(Path::new(""));
     let current_dir_target = args.target.join(current_dir_rel);
 
@@ -63,6 +157,7 @@ pub fn process_directory(args: &Args, site_map: &SiteMap, metadata_map: &Metadat
                     continue; 
                 }
             }
+
             process_directory(args, site_map, metadata_map, &path_source, html_template)?;
         } else if path_source.is_file() {
             let file_name = path_source.file_name().unwrap_or_default();
@@ -89,7 +184,7 @@ pub fn process_directory(args: &Args, site_map: &SiteMap, metadata_map: &Metadat
             if let Some(ext) = path_source.extension().and_then(|e| e.to_str()).map(|s| s.to_lowercase()) {
                 if EXCLUDED_EXTENSIONS.contains(&ext.as_str()) {
                     if args.verbose {
-                        print_info(&format!("Skipping file with excluded extension (.{}: {})", ext, rel_path.display()));
+                        print_info(&format!("Skipping file with excluded extension (.{}): {}", ext, rel_path.display()));
                     }
                     continue;
                 }
@@ -140,7 +235,16 @@ pub fn smart_copy_file(args: &Args, path_source: &Path, path_target: &Path, rel_
     Ok(())
 }
 
-pub fn markdown_to_html(args: &Args, site_map: &SiteMap, metadata: &PageMetadata, path_source: &Path, path_target: &Path, path_rel: &Path, html_template: &str, metadata_map: &MetadataMap) -> io::Result<()> {
+pub fn markdown_to_html(
+    args: &Args, 
+    site_map: &SiteMap, 
+    metadata: &PageMetadata, 
+    path_source: &Path, 
+    path_target: &Path, 
+    path_rel: &Path, 
+    html_template: &str, 
+    metadata_map: &MetadataMap,
+) -> io::Result<()> {
     let control_char_regex = Regex::new(r"[\p{Cc}\p{Cf}&&[^\n\t\r]]").unwrap();
     let json_regex = Regex::new(r"(?s)```json\s*(\{.*?\})\s*```\s*(\s*)$").unwrap();
     let todo_regex = Regex::new(r"^(?P<prefix>[\s*>\-\+]*)(TODO:?\s*)(?P<text>.*)$").unwrap();
@@ -301,8 +405,9 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, metadata: &PageMetadata
     options.insert(Options::ENABLE_FOOTNOTES);
     
     let parser = Parser::new_ext(&content_for_parser, options); 
-    
-    let (html_output_content, title_from_h1) = process_markdown_events(args, site_map, parser, path_rel);
+
+    // CHANGED: Pass title_cache instead of metadata_map
+    let (html_output_content, title_from_h1) = process_markdown_events(args, site_map, metadata_map, parser, path_rel);
 
     // Use metadata override for the title
     let title = metadata.page_title.as_ref().unwrap_or(&title_from_h1).clone();
@@ -355,6 +460,7 @@ pub fn markdown_to_html(args: &Args, site_map: &SiteMap, metadata: &PageMetadata
 pub fn process_markdown_events<'a>(
     args: &Args, 
     site_map: &SiteMap,
+    metadata_map: &MetadataMap,  // CHANGED: back to metadata_map
     parser: Parser<'a, 'a>,
     path_rel: &Path,
 ) -> (String, String) {
@@ -368,8 +474,10 @@ pub fn process_markdown_events<'a>(
     let mut current_heading_id: Option<String> = None;
     let mut current_heading_classes: Option<Vec<String>> = None; 
     
-    // Link tracking flag
-    let mut in_link = false; 
+    let mut in_link = false;
+    let mut current_link_dest: Option<String> = None;
+    let mut link_text_events: Vec<Event> = Vec::new();
+    let mut should_auto_title = false;
 
     for event in parser {
         match event {
@@ -410,41 +518,76 @@ pub fn process_markdown_events<'a>(
                     title_h1.push_str(&text);
                 } 
                 
-                // If inside an existing link, skip any processing
                 if in_link {
-                    events.push(Event::Text(text));
+                    let trimmed = text.trim();
+                    if trimmed == "{title}" || trimmed == "{TITLE}" {
+                        should_auto_title = true;
+                    }
+                    link_text_events.push(Event::Text(text.clone()));
                     continue; 
                 }
 
-                // Custom auto-linking logic is now handled in markdown_to_html via regex substitution.
                 events.push(Event::Text(text));
             }
             Event::Start(Tag::Link(link_type, dest, title_attr)) => {
                 in_link = true; 
+                link_text_events.clear();
+                should_auto_title = false;
+                
                 let is_external = dest.starts_with("http") || dest.starts_with("ftp");
                 if link_type == LinkType::Inline && !is_external {
                     let dest_path = PathBuf::from(&*dest);
+                    current_link_dest = Some(dest.to_string());
                     let new_dest = rewrite_link_to_relative(path_rel, &dest_path, site_map, args.verbose);
                     events.push(Event::Start(Tag::Link(link_type, new_dest.into(), title_attr)));
                 } else if is_external {
-                    // If it is an external link, we use a custom target="_blank" HTML tag
-                    // FIX: Remove the title attribute insertion
+                    current_link_dest = None;
                     let html_tag_start = format!("<a href=\"{}\" target=\"_blank\" rel=\"noopener noreferrer\">", dest);
                     events.push(Event::Html(html_tag_start.into()));
                 } else {
+                    current_link_dest = None;
                     events.push(Event::Start(Tag::Link(link_type, dest, title_attr)));
                 }
             }
             Event::End(Tag::Link(link_type, dest, title_attr)) => {
-                in_link = false; 
                 let is_external = dest.starts_with("http") || dest.starts_with("ftp");
+                
+                let link_is_empty = link_text_events.is_empty();
+                
+                if !is_external && (should_auto_title || link_is_empty) {
+                    if let Some(original_dest) = &current_link_dest {
+                        let dest_path = PathBuf::from(original_dest);
+                        // CHANGED: Use metadata_map instead of title_cache
+                        if let Some(auto_title) = get_link_title(path_rel, &dest_path, metadata_map, site_map, args.verbose) {
+                            events.push(Event::Text(auto_title.into()));
+                        } else {
+                            events.extend(link_text_events.drain(..));
+                        }
+                    } else {
+                        events.extend(link_text_events.drain(..));
+                    }
+                } else {
+                    events.extend(link_text_events.drain(..));
+                }
+                
+                in_link = false; 
+                current_link_dest = None;
+                link_text_events.clear();
+                should_auto_title = false;
+                
                 if is_external {
                     events.push(Event::Html("</a>".into()));
                 } else {
                     events.push(Event::End(Tag::Link(link_type, dest, title_attr)));
                 }
             }
-            e => events.push(e),
+            e => {
+                if in_link {
+                    link_text_events.push(e);
+                } else {
+                    events.push(e);
+                }
+            }
         }
     }
 
@@ -481,7 +624,6 @@ pub fn resolve_link_path(from_path_rel: &Path, link_target: &Path) -> PathBuf {
     PathBuf::from("/").join(components.iter().collect::<PathBuf>())
 }
 
-//TODO: What does this do
 pub fn rewrite_link_to_relative(from_path_rel: &Path, link_target: &Path, site_map: &SiteMap, verbose: bool) -> String {
     let root_rel_path = resolve_link_path(from_path_rel, link_target);
     let target_path_rel = root_rel_path.strip_prefix("/").unwrap_or(Path::new(""));
@@ -669,3 +811,4 @@ pub fn convert_urls_to_anchors(html: &str) -> String {
         result
     }
 }
+

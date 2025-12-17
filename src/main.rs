@@ -7,13 +7,12 @@ mod site_map;
 mod nav;
 mod processing;
 
-use config::Args;
 use args::parse_args;
 use io::{read_template, print_info, print_error};
 use site_map::build_site_map;
 use processing::{process_directory, load_all_metadata_from_files, generate_sitemap_xml};
 use nav::{generate_all_index_files};
-
+use config::Args;
 
 fn main() -> std::io::Result<()> {
     let args: Args = parse_args();
@@ -49,10 +48,13 @@ fn main() -> std::io::Result<()> {
         print_info(&format!("Identified {} files for processing.", site_map.len()));
     }
     
-    // NEW: Load all metadata before processing any files
     let metadata_map = load_all_metadata_from_files(&args, &site_map)?;
+    
+    if args.verbose {
+        print_info(&format!("Loaded metadata for {} files.", metadata_map.len()));
+    }
 
-    // FIX: Pass the metadata_map to the processing and index generation functions
+    // CHANGED: Remove title_cache building and passing
     process_directory(&args, &site_map, &metadata_map, &args.source, &html_template)?;
     
     generate_all_index_files(&args, &site_map, &metadata_map, &html_template)?;

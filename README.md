@@ -72,7 +72,6 @@ Browse to:
 
 ## Outstanding Issues
 
-- Apply ideas from https://github.com/deliverystack/wink/blob/main/wince to jpw3gen.sh
 - Documentation including features
 - Refactoring, cleanup, and comment code
 - Comment rust code.
@@ -83,3 +82,5 @@ Browse to:
 - navigation sorting seems to not work, for example articles/2025/May
 - Storing the entire nav in every HTML file requires too much generation and makes the files to big and slow.
 - Needs refactoring. Config.rs contains too much code, as does processing; some needs a new HTML library or something.
+- Site search is not working well
+- Clippy reports some issues; exit is commented in jpw3gen.sh

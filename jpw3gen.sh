@@ -122,7 +122,9 @@ fi
 
 set -e
 
-cmd="time cargo build -v --release"
+# add --release but that will build to a different path so invocation will be wrong...
+
+cmd="time cargo build -v"
 
 if [ "$CLIPBOARD" -eq 1 ]; then
     result=$($cmd 3>&1 1>&2 2>&3 | tee /dev/fd/2 >(xclip -selection clipboard))

@@ -21,6 +21,23 @@ pub fn generate_navigation_html(
     nav_tree_to_html(&nav_tree, current_rel_path, site_map, args, true)
 }
 
+fn get_directory_sort_keys(metadata_map: &MetadataMap) -> BTreeMap<PathBuf, String> {
+    let mut dir_sort_keys = BTreeMap::new();
+
+    for (path, metadata) in metadata_map.iter() {
+        if path.file_name().map_or(false, |n| n == "index.md") {
+            if let Some(sort_key) = &metadata.sort_key {
+                // This is an index.md with a sort_key
+                if let Some(parent_dir) = path.parent() {
+                    dir_sort_keys.insert(parent_dir.to_path_buf(), sort_key.to_lowercase());
+                }
+            }
+        }
+    }
+
+    dir_sort_keys
+}
+
 fn build_nav_tree(
     site_map: &SiteMap,
     metadata_map: &MetadataMap,
@@ -28,6 +45,9 @@ fn build_nav_tree(
 ) -> NavItem {
     let mut root_children: NavTree = BTreeMap::new();
     let current_html_path = current_rel_path.with_extension("html");
+
+    // NEW: Pre-compute directory sort keys
+    let dir_sort_keys = get_directory_sort_keys(metadata_map);
 
     // Initial sort ensures consistent starting order for paths without explicit metadata
     let mut sorted_paths: Vec<PathBuf> = site_map.iter().cloned().collect();
@@ -152,9 +172,12 @@ fn build_nav_tree(
 
             is_at_root_level = false;
 
-            // Get or create the Directory item.
-            let entry = current_map.entry(dir_name_str.clone()).or_insert_with(|| {
-                // --- FIX START: Check index.md for directory title ---
+            let dir_sort_key = dir_sort_keys
+                .get(&path_builder)
+                .cloned()
+                .unwrap_or_else(|| dir_name_str.to_lowercase());
+
+            let entry = current_map.entry(dir_sort_key).or_insert_with(|| {
                 let index_md_path = path_builder.join("index.md");
 
                 // Default to the directory folder name
@@ -166,15 +189,13 @@ fn build_nav_tree(
                         dir_display_name = title.clone();
                     }
                 }
-                // --- FIX END ---
 
                 NavItem::Directory {
                     rel_path: path_builder.clone(),
-                    name: dir_display_name, // Now uses the nav_title if available
+                    name: dir_display_name,
                     children: BTreeMap::new(),
                 }
             });
-
             // Update reference to the children of the current directory
             current_map = entry
                 .get_children_mut()

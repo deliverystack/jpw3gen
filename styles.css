@@ -182,11 +182,3 @@ main img {
   margin-left: auto !important;
   margin-right: auto !important;
 }
-
-.pruned-branch details > summary {
-    list-style: none !important;
-}
-
-.pruned-branch details > summary::-webkit-details-marker {
-    display: none !important;
-}

@@ -221,8 +221,8 @@ fn nav_tree_to_html(nav_item: &NavItem, current_rel_path: &Path, site_map: &Site
                 };
                 let index_link_path = rewrite_link_to_relative(current_rel_path, &site_root_path, site_map, false);
                 
-                return format!("<li class=\"pruned-branch\"><details><summary><a href=\"{}\">{}</a></summary></details></li>", 
-                    index_link_path, name);            
+                return format!("<li><details><summary><a href=\"{}\">{}</a></summary></details></li>", 
+                    index_link_path, name);
             }
             
             // Determine the link for this directory's index page

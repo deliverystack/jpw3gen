@@ -664,7 +664,8 @@ pub fn process_markdown_events<'a>(
                         title_attr,
                     )));
                 } else if is_external {
-                    current_link_dest = None;
+                    // Store dest for external links too, for auto-title
+                    current_link_dest = Some(dest.to_string());
                     let html_tag_start = format!(
                         "<a href=\"{}\" target=\"_blank\" rel=\"noopener noreferrer\">",
                         dest
@@ -680,20 +681,25 @@ pub fn process_markdown_events<'a>(
 
                 let link_is_empty = link_text_events.is_empty();
 
-                if !is_external && (should_auto_title || link_is_empty) {
+                if should_auto_title || link_is_empty {
                     if let Some(original_dest) = &current_link_dest {
-                        let dest_path = PathBuf::from(original_dest);
-                        // CHANGED: Use metadata_map instead of title_cache
-                        if let Some(auto_title) = get_link_title(
-                            path_rel,
-                            &dest_path,
-                            metadata_map,
-                            site_map,
-                            args.verbose,
-                        ) {
-                            events.push(Event::Text(auto_title.into()));
+                        if is_external {
+                            // For external links, use the URL as the title
+                            events.push(Event::Text(original_dest.clone().into()));
                         } else {
-                            events.append(&mut link_text_events);
+                            // For internal links, look up the title from metadata
+                            let dest_path = PathBuf::from(original_dest);
+                            if let Some(auto_title) = get_link_title(
+                                path_rel,
+                                &dest_path,
+                                metadata_map,
+                                site_map,
+                                args.verbose,
+                            ) {
+                                events.push(Event::Text(auto_title.into()));
+                            } else {
+                                events.append(&mut link_text_events);
+                            }
                         }
                     } else {
                         events.append(&mut link_text_events);

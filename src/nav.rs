@@ -99,7 +99,7 @@ fn build_nav_tree(
         const EXCLUDED_FILE_NAMES: [&str; 2] = ["template.html", "favicon.ico"];
 
         // Explicit list of extensions to skip - see a similar list in processing.rs - and related logic in jpw3gen.sh
-        const EXCLUDED_EXTENSIONS: [&str; 4] = ["css", "js", "xml", "html"];
+        const EXCLUDED_EXTENSIONS: [&str; 5] = ["css", "js", "xml", "html", "json"];
 
         if EXCLUDED_FILE_NAMES.contains(&file_name_str.as_str()) {
             continue;

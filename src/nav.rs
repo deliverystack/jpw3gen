@@ -25,7 +25,7 @@ fn get_directory_sort_keys(metadata_map: &MetadataMap) -> BTreeMap<PathBuf, Stri
     let mut dir_sort_keys = BTreeMap::new();
 
     for (path, metadata) in metadata_map.iter() {
-        if path.file_name().map_or(false, |n| n == "index.md") {
+        if path.file_name().is_some_and(|n| n == "index.md") {
             if let Some(sort_key) = &metadata.sort_key {
                 // This is an index.md with a sort_key
                 if let Some(parent_dir) = path.parent() {

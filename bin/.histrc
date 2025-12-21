@@ -1,0 +1,29 @@
+shopt -s histappend
+
+export HISTCONTROL=ignoreboth
+export HISTSIZE=10000
+export HISTFILESIZE=10000
+
+HISTFILE="$HOME/.bash_history"
+
+if [[ -z "$HISTFILE" || ! -f "$HISTFILE" ]]; then
+    echo "Error: HISTFILE is not defined or does not exist. Cannot clean history." >&2
+    return 1
+fi
+
+temphist=$(mktemp)
+
+nl "$HISTFILE" \
+    | sort -f -b -k2 -r \
+    | sed 's/[[:blank:]]*$//' \
+    | sort -f -b -k2 -r -u \
+    | sort -n \
+    | cut -c8- \
+    | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /\([^[:space:]]\{1\}.*\)\{8\}/!d' > "$temphist"
+mv "$temphist" "$HISTFILE"
+#history -r
+alias hb='history | tac | bat -l sh'
+
+# I think this would cause immediate history writes rather than waiting for shell exit.
+#histcmd="history | tail -n 1 | cut -c8- >> ${HOME}/.hist.log"
+#[[ ":${PROMPT_COMMAND}:" != *":${new_command}:"* ]] && export PROMPT_COMMAND="${histcmd};${PROMPT_COMMAND}"

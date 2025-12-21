@@ -1,0 +1,200 @@
+# source this code in Bash shells to replace the cd command as described at
+# https://wslguy.net/2024/11/28/wsl-bash-cd-enhancement-to-track-directories-across-sessions/
+
+jd() {
+    func_name="${FUNCNAME[0]}"
+    dir_file="${HOME}/.${func_name}.config"
+    touch "${dir_file}"
+
+    resolve_path() {
+        local input_path="$1"
+
+        if [[ "$input_path" =~ ^\\\\ || "$input_path" =~ ^[a-zA-Z]: ]]; then
+            if [[ "$input_path" =~ ^[a-zA-Z]:$ ]]; then
+                input_path="${input_path}\\"
+            fi
+            input_path=$(wslpath -u "$input_path" 2>/dev/null || echo "$input_path")
+        fi
+
+        local resolved
+        resolved=$(realpath -m "$input_path" 2>/dev/null) || return 1
+
+        if [[ "$resolved" != "/" ]]; then
+            resolved="${resolved%/}"
+        fi
+        echo "${resolved}/"
+    }
+    
+    if [[ "$1" == "-" ]]; then
+        if [[ -z "$OLDPWD" ]]; then
+            echo "Error: OLDPWD not set." >&2
+            return 1
+        fi
+        local prev_dir="${PWD}"
+        builtin cd - 2>/dev/null
+        local cd_exit_code=$?
+        
+        if [[ $cd_exit_code -eq 0 ]]; then
+            if ! grep -Fxq "${PWD}/" "${dir_file}"; then
+                echo "${PWD}/" >> "${dir_file}"
+            fi
+        fi
+        
+        return $cd_exit_code
+    fi
+
+    # Variables to collect options and directory
+    local cd_opts=""
+    local target_dir=""
+    local args=()
+    local add_descendants=false
+    local remove_arg=""
+    local line_number=""
+    local list_after_remove=false
+
+    # Color codes
+    cyan="\033[0;36m"
+    orange="\033[0;33m"
+    green="\033[0;32m"
+    reset="\033[0m"
+
+    # Collect options and positional arguments
+    while [[ "$1" ]]; do
+        if [[ "$1" =~ ^-[^-] && ${#1} -gt 2 ]]; then
+            echo "Error: Options must not be combined. Received: $1" >&2
+            return 1
+        fi
+        case "$1" in
+            -a)
+                add_descendants=true
+                ;;
+            -e)
+                cd_opts+=" $1"
+                ;;
+            -L)
+                cd_opts+=" $1"
+                ;;
+            -l)
+                list_after_remove=true
+                ;;
+            -n)
+                shift
+                if [[ -z "$1" || ! "$1" =~ ^[0-9]+$ ]]; then
+                    echo "Error: The -n option requires a valid line number argument." >&2
+                    return 1
+                fi
+                line_number="$1"
+                if [[ "$line_number" -gt $(wc -l < "${dir_file}") ]]; then
+                    echo "Error: Line number $line_number exceeds the total lines in the file." >&2
+                    return 1
+                fi
+                ;;
+            -P)
+                cd_opts+=" $1"
+                ;;
+            -r)
+                shift
+                if [[ -z "$1" ]]; then
+                    echo "Error: The -r option requires a number, range, or pattern argument." >&2
+                    return 1
+                fi
+                remove_arg="$1"
+                ;;
+            -@)
+                cd_opts+=" $1"
+                ;;
+            -h)
+                cat <<EOF
+Usage: ${func_name} [OPTIONS] [DIRECTORY]
+Options supported by default cd:
+  -L             Follow symbolic links (default).
+  -P             Use the physical directory structure.
+  -e             Exit with non-zero if the current working directory fails.
+  -@             On supported systems, show extended file attributes.
+
+Options supported by jd:
+  -a             Add all descendant directories of the current working directory.
+  -h             Show this help message.
+  -l             List tracked directories with line numbers.
+  -n NUMBER      Change to the directory at the specified line.
+  -r ARG         Remove lines by line number/range (e.g., 3,6) or matching pattern.
+EOF
+                return 0
+                ;;
+            *)
+                args+=("$1")  # Collect positional arguments (directory paths)
+                ;;
+        esac
+        shift
+    done
+
+    # Handle the -r option
+    if [[ -n "$remove_arg" ]]; then
+        if [[ "$remove_arg" =~ ^[0-9]+,[0-9]+$ ]]; then
+            # Convert range "N,M" to sed-compatible "N,M"
+            sed -i "${remove_arg}d" "${dir_file}"
+            echo "Removed lines ${remove_arg} from ${dir_file}."
+        else
+            # Remove lines matching the pattern
+            grep -v -E "$remove_arg" "${dir_file}" > "${dir_file}.tmp" && mv "${dir_file}.tmp" "${dir_file}"
+            echo "Removed lines matching pattern '$remove_arg' from ${dir_file}."
+        fi
+    fi
+
+    # Handle the -l option to list tracked directories
+    if [[ "$list_after_remove" == true ]]; then
+        awk -v cyan="$cyan" -v orange="$orange" -v green="$green" -v reset="$reset" '
+            { 
+                color = (NR % 3 == 1) ? cyan : (NR % 3 == 2) ? orange : green;
+                printf color "%4d: %s" reset "\n", NR, $0;
+            }
+        ' "${dir_file}"
+        return 0
+    fi
+
+    # Determine the directory to navigate to
+    local new_dir="${args[0]:-}"
+    if [[ -n "$line_number" ]]; then
+        new_dir=$(sed -n "${line_number}p" "${dir_file}")
+        if [[ -z "$new_dir" ]]; then
+            echo "Error: No directory at line ${line_number}." >&2
+            return 1
+        fi
+    elif [[ -z "$new_dir" ]]; then
+        new_dir="$HOME"
+    fi
+
+    local resolved_path
+    resolved_path=$(resolve_path "$new_dir") || {
+        echo "Error: Failed to resolve path: $new_dir" >&2
+        return 1
+    }
+
+    if [[ "$add_descendants" == true ]]; then
+        find . -type d -print | while IFS= read -r dir; do
+            resolved=$(resolve_path "$dir")
+            if ! grep -Fxq "$resolved" "$dir_file"; then
+                echo "$resolved" >> "${dir_file}"
+            fi
+        done
+    fi
+
+    local prev_dir="${PWD}"
+    builtin cd $cd_opts "$resolved_path" 2>/dev/null
+    local cd_exit_code=$?  # Capture the exit code of `cd`
+
+    if [[ $cd_exit_code -ne 0 ]]; then
+        echo "Error: Failed to change directory to ${resolved_path}." >&2
+        return $cd_exit_code  # Return the same exit code as `cd`
+    fi
+
+    export OLDPWD="${prev_dir}"
+
+    if ! grep -Fxq "${PWD}/" "${dir_file}"; then
+        echo "${PWD}/" >> "${dir_file}"
+    fi
+
+    return $cd_exit_code  # Ensure the function returns the same exit code as `cd`
+}
+
+alias cd='jd'

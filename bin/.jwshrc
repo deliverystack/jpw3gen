@@ -1,0 +1,30 @@
+export PS1='\n[\D{%F %T}]:\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[38;5;226m\]\!:\[\033[00m\]\[\033[01;34m\]\w\[\033[00m\]\n\[\033[38;5;226m\]$\[\033[00m\] '
+
+
+export LC_ALL=en_US.UTF-8
+
+#time sudo apt update
+#time sudo apt full-upgrade
+#time sudo apt autoremove
+
+if [ -f ~/bin/.histrc ]; then
+    . ~/bin/.histrc
+fi
+
+if [ -f ~/bin/.jdrc ]; then
+    . ~/bin/.jdrc
+fi
+
+#alias display='gnome-control-center display'
+alias code='flatpak run com.vscodium.codium'
+alias cclip='xclip -selection clipboard'
+alias pclip='xclip -selection clipboard -o'
+tclip () {
+    "$@" 2>&1 | tee >(xclip -selection clipboard)
+}
+
+export EDITOR='flatpak run com.vscodium.codium'
+
+alias start='xdg-open'
+
+#set +x

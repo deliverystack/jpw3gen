@@ -1,8 +1,8 @@
 use crate::config::{Args, MetadataMap, NavItem, NavTree, PageMetadata, SiteMap};
+use crate::html::format_html_page;
 use crate::io::{collect_all_dirs_robust, print_error, print_info};
-use crate::processing::{
-    format_html_page, get_last_modified_date, process_markdown_events, rewrite_link_to_relative,
-};
+use crate::markdown::{process_markdown_events, rewrite_link_to_relative};
+use crate::processing::{get_creation_date, get_last_modified_date};
 use pulldown_cmark::Parser;
 use regex::Regex;
 use std::{
@@ -27,7 +27,6 @@ fn get_directory_sort_keys(metadata_map: &MetadataMap) -> BTreeMap<PathBuf, Stri
     for (path, metadata) in metadata_map.iter() {
         if path.file_name().is_some_and(|n| n == "index.md") {
             if let Some(sort_key) = &metadata.sort_key {
-                // This is an index.md with a sort_key
                 if let Some(parent_dir) = path.parent() {
                     dir_sort_keys.insert(parent_dir.to_path_buf(), sort_key.to_lowercase());
                 }
@@ -46,17 +45,13 @@ fn build_nav_tree(
     let mut root_children: NavTree = BTreeMap::new();
     let current_html_path = current_rel_path.with_extension("html");
 
-    // NEW: Pre-compute directory sort keys
     let dir_sort_keys = get_directory_sort_keys(metadata_map);
 
-    // Initial sort ensures consistent starting order for paths without explicit metadata
     let mut sorted_paths: Vec<PathBuf> = site_map.iter().cloned().collect();
     sorted_paths.sort();
 
-    // Create a persistent default value outside the loop
     let default_metadata = PageMetadata::default();
 
-    // Directory Exclusion Pre-processing
     let mut excluded_dirs = std::collections::HashSet::new();
 
     for rel_path in site_map
@@ -71,17 +66,14 @@ fn build_nav_tree(
             }
         }
     }
-    // END Directory Exclusion Pre-processing
 
     for rel_path in sorted_paths {
         let metadata = metadata_map.get(&rel_path).unwrap_or(&default_metadata);
 
-        // 1. Exclude based on explicit file metadata (Highest Priority)
         if metadata.exclude_from_nav.unwrap_or(false) {
             continue;
         }
 
-        // 2. Correct Directory Exclusion Check: Skip file if it lives inside an excluded directory
         let is_in_excluded_dir = excluded_dirs.iter().any(|excluded_dir| {
             !excluded_dir.as_os_str().is_empty() && rel_path.starts_with(excluded_dir)
         });
@@ -89,16 +81,11 @@ fn build_nav_tree(
         if is_in_excluded_dir {
             continue;
         }
-        // END Correct Directory Exclusion Check
 
-        // 3. Global Exclusion for Non-Content Assets (Added to exclude files like favicon.ico, styles.css)
         let file_name = rel_path.file_name().unwrap_or_default();
         let file_name_str = file_name.to_string_lossy().to_lowercase();
 
-        // Explicit list of files to skip - see a similar list in processing.rs - and related logic in jpw3gen.sh
         const EXCLUDED_FILE_NAMES: [&str; 2] = ["template.html", "favicon.ico"];
-
-        // Explicit list of extensions to skip - see a similar list in processing.rs - and related logic in jpw3gen.sh
         const EXCLUDED_EXTENSIONS: [&str; 5] = ["css", "js", "xml", "html", "json"];
 
         if EXCLUDED_FILE_NAMES.contains(&file_name_str.as_str()) {
@@ -114,10 +101,7 @@ fn build_nav_tree(
                 continue;
             }
         }
-        // END Global Exclusion for Non-Content Assets
 
-        // 4. Always exclude non-root index.md files from appearing as "Files" in the tree
-        //    (They are handled as the Directory link itself)
         let is_index_md = rel_path.file_name().is_some_and(|n| n == "index.md");
         let is_root = rel_path.parent().is_none_or(|p| p.as_os_str().is_empty());
 
@@ -125,7 +109,6 @@ fn build_nav_tree(
             continue;
         }
 
-        // Convert path components to strings safely
         let components: Vec<String> = rel_path
             .components()
             .filter_map(|c| match c {
@@ -138,7 +121,6 @@ fn build_nav_tree(
             continue;
         }
 
-        // 1. Determine the display name (used for rendering FILES)
         let file_name = if let Some(title) = metadata.nav_title.clone() {
             title
         } else {
@@ -149,7 +131,6 @@ fn build_nav_tree(
                 .unwrap_or_else(|| components.last().unwrap().clone())
         };
 
-        // 2. Determine the insertion key (used for sorting)
         let primary_sort_key = metadata
             .sort_key
             .as_ref()
@@ -160,12 +141,10 @@ fn build_nav_tree(
 
         let insertion_key = format!("{}--{}", final_sort_key_for_map, rel_path.to_string_lossy());
 
-        // Start traversal from the root map
         let mut current_map = &mut root_children;
         let mut path_builder = PathBuf::new();
         let mut is_at_root_level = true;
 
-        // Iterate through all components except the last one (the file)
         for i in 0..components.len() - 1 {
             let dir_name_str = &components[i];
             path_builder.push(dir_name_str);
@@ -180,10 +159,8 @@ fn build_nav_tree(
             let entry = current_map.entry(dir_sort_key).or_insert_with(|| {
                 let index_md_path = path_builder.join("index.md");
 
-                // Default to the directory folder name
                 let mut dir_display_name = dir_name_str.clone();
 
-                // Check if we have metadata for this directory's index.md
                 if let Some(dir_metadata) = metadata_map.get(&index_md_path) {
                     if let Some(title) = &dir_metadata.nav_title {
                         dir_display_name = title.clone();
@@ -196,13 +173,11 @@ fn build_nav_tree(
                     children: BTreeMap::new(),
                 }
             });
-            // Update reference to the children of the current directory
             current_map = entry
                 .get_children_mut()
                 .expect("Item should be a directory");
         }
 
-        // 3. Insert the File item using the composite insertion_key
         if !is_at_root_level || components.len() == 1 {
             let is_current = rel_path.with_extension("html") == current_html_path;
             current_map.insert(
@@ -224,17 +199,14 @@ fn build_nav_tree(
 }
 
 fn should_render_branch(item_path: &Path, current_path: &Path) -> bool {
-    // Always render root level items
     if item_path.components().count() <= 1 {
         return true;
     }
 
-    // Render if this directory is on the path to the current page
     if current_path.starts_with(item_path) {
         return true;
     }
 
-    // Render siblings (items in the same directory as current page)
     if let (Some(item_parent), Some(current_parent)) = (item_path.parent(), current_path.parent()) {
         if item_parent == current_parent {
             return true;
@@ -282,9 +254,7 @@ fn nav_tree_to_html(
         } => {
             let mut html = String::new();
 
-            // Check if we should render this branch at all
             if !is_root && !should_render_branch(rel_path, current_rel_path) {
-                // For branches not on the current path, just show a collapsed link
                 let site_root_path = if rel_path.as_os_str().is_empty() {
                     PathBuf::from("/index.md")
                 } else {
@@ -299,7 +269,6 @@ fn nav_tree_to_html(
                 );
             }
 
-            // Determine the link for this directory's index page
             let index_link_path = {
                 let site_root_path = if rel_path.as_os_str().is_empty() {
                     PathBuf::from("/index.md")
@@ -339,7 +308,6 @@ fn nav_tree_to_html(
                 html.push_str("<ul>");
             }
 
-            // Process Directories first
             let mut has_directories = false;
             for (_, child) in children.iter() {
                 if let NavItem::Directory { .. } = child {
@@ -354,7 +322,6 @@ fn nav_tree_to_html(
                 }
             }
 
-            // Check for files to add separator
             let has_files = children
                 .iter()
                 .any(|(_, child)| matches!(child, NavItem::File { .. }));
@@ -363,7 +330,6 @@ fn nav_tree_to_html(
                 html.push_str("<li class=\"nav-separator\"></li>");
             }
 
-            // Process Files (only if we're rendering this branch)
             for (_, child) in children.iter() {
                 if let NavItem::File { .. } = child {
                     html.push_str(&nav_tree_to_html(
@@ -478,6 +444,7 @@ pub fn generate_all_index_files(
 
         let nav_html = generate_navigation_html(args, site_map, metadata_map, &nav_rel_path);
 
+        let date_created = get_creation_date(&source_path_real);
         let last_modified = get_last_modified_date(&source_path_real);
         let default_content = if content.is_empty() {
             format!(
@@ -491,6 +458,7 @@ pub fn generate_all_index_files(
         let final_html = format_html_page(
             &title,
             &source_path_display,
+            &date_created,
             &last_modified,
             &nav_html,
             &default_content,

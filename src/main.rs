@@ -2,16 +2,19 @@ use std::fs;
 
 mod args;
 mod config;
+mod html;
 mod io;
+mod markdown;
 mod nav;
 mod processing;
 mod site_map;
 
 use args::parse_args;
 use config::Args;
+use html::generate_sitemap_xml;
 use io::{print_error, print_info, read_template};
 use nav::generate_all_index_files;
-use processing::{generate_sitemap_xml, load_all_metadata_from_files, process_directory};
+use processing::{load_all_metadata_from_files, process_directory};
 use site_map::build_site_map;
 
 fn main() -> std::io::Result<()> {

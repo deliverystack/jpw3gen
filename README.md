@@ -1,3 +1,94 @@
+# Static Site Generator Technical Documentation
+
+## Overview
+This project is a static site generator written in Rust that converts a directory structure of Markdown files into a navigable HTML website. It supports metadata extraction via JSON blocks, automatic navigation tree generation, and smart file synchronization.
+
+---
+
+## 1. Project Architecture
+The system is modularized into several components that handle specific stages of the build process:
+
+* **main.rs**: The orchestration layer that coordinates the execution flow.
+* **args.rs**: Manages CLI argument parsing using `clap` (source, target, verbose flags).
+* **config.rs**: Defines core data structures like `PageMetadata`, `NavItem`, and global configuration.
+* **site_map.rs**: Discovers and maps all source files to identify what needs processing.
+* **processing.rs**: Contains high-level logic for directory traversal and the Markdown-to-HTML conversion pipeline.
+* **markdown.rs**: Implements Markdown parsing, content normalization, and link rewriting.
+* **nav.rs**: Constructs a recursive navigation tree and generates `index.html` files for directories.
+* **html.rs**: Handles final HTML formatting via templates and generates `sitemap.xml`.
+* **io.rs**: Provides utility functions for console output and file reading.
+
+---
+
+## 2. Data Structures
+The system relies on several key structures for state management:
+
+### PageMetadata
+Extracted from JSON code blocks at the end of Markdown files.
+* `page_title`: Explicit title for the `<title>` tag.
+* `nav_title`: Text used in the navigation menu.
+* `avoid_generation`: If true, skips generating an HTML file for this source.
+* `sort_key`: Used to override alphabetical sorting in navigation.
+* `computed_title`: Fallback title extracted from the first H1 heading.
+
+### NavItem
+A recursive enum used to build the site’s hierarchy:
+* `File`: Represents a single page with its relative path and current status.
+* `Directory`: Represents a folder containing a `BTreeMap` of child `NavItems`.
+
+---
+
+## 3. Functional Call Tree
+The following tree represents the execution flow from program start:
+
+* `main()`
+    * `parse_args()`: Validates directories and verbosity.
+    * `read_template()`: Loads the HTML skeleton (`template.html`).
+    * `build_site_map()`: Recursively catalogs all source files.
+    * `load_all_metadata_from_files()`: Scans all `.md` files to build a global metadata map.
+    * `process_directory()`: Primary recursive loop.
+        * `markdown_to_html()`: Processes `.md` files into HTML.
+            * `normalize_markdown_content()`: Cleans up control characters and formatting.
+            * `check_broken_links()`: Validates internal links via regex.
+            * `process_markdown_events()`: Rewrites links and handles auto-titling.
+            * `generate_navigation_html()`: Builds the site-wide sidebar.
+        * `smart_copy_file()`: Copies assets only if the content has changed.
+    * `generate_all_index_files()`: Ensures every folder has an index page.
+    * `generate_sitemap_xml()`: Produces the final SEO sitemap.
+
+
+
+---
+
+## 4. Key Logic & Processing
+
+### Markdown Normalization
+The `normalize_markdown_content` function performs several cleanup tasks:
+* Removes non-essential control characters.
+* Standardizes line endings and replaces special Unicode characters (like smart quotes) with standard ASCII equivalents.
+* Converts source code comments (lines starting with `//`) into standard text.
+* Applies specific formatting to `TODO` markers.
+
+### Link Rewriting
+Links within Markdown files are dynamically transformed:
+* `.md` extensions are converted to `.html`.
+* Absolute site paths (starting with `/`) are resolved relative to the current file.
+* Links to directories are automatically pointed to that directory's `index.html`.
+* If a link contains `{title}`, it is replaced with the computed title of the target page.
+
+### Navigation Tree Generation
+The navigation is built by iterating through the `SiteMap`. It respects `exclude_from_nav` flags and uses `sort_key` for ordering. Branches are automatically expanded if they contain the currently active page or if the branch is a parent of the active page.
+
+---
+
+## 5. Deployment and Outputs
+* **Target Directory**: The final site is mirrored in the specified target path.
+* **Sitemap**: A `sitemap.xml` is generated in the root, including `lastmod`, `changefreq`, and `priority` based on file metadata.
+* **Index Files**: For directories missing an `index.md`, a default index is created listing available content.
+
+
+
+
 
 # jpw3gen - Generate Static HTML Site from Markdown File System
 

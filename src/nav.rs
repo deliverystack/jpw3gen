@@ -1,5 +1,5 @@
 use crate::config::{Args, MetadataMap, NavItem, NavTree, PageMetadata, SiteMap};
-use crate::html::format_html_page;
+use crate::html::{format_html_page, generate_breadcrumb_html, generate_canonical_url};
 use crate::io::{collect_all_dirs_robust, print_error, print_info};
 use crate::markdown::{process_markdown_events, rewrite_link_to_relative};
 use crate::processing::{get_creation_date, get_last_modified_date};
@@ -455,6 +455,9 @@ pub fn generate_all_index_files(
             content
         };
 
+        let breadcrumb_html = generate_breadcrumb_html(&nav_rel_path, metadata_map, &args.base_url);
+        let canonical_url = generate_canonical_url(&nav_rel_path, &args.base_url);
+
         let final_html = format_html_page(
             &title,
             &source_path_display,
@@ -463,6 +466,8 @@ pub fn generate_all_index_files(
             &nav_html,
             &default_content,
             html_template,
+            &breadcrumb_html,
+            &canonical_url,
         );
 
         fs::create_dir_all(&path_target_dir)?;

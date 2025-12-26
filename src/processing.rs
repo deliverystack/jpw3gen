@@ -4,7 +4,9 @@ use regex::Regex;
 use std::{collections::BTreeMap, fs, io, path::Path};
 
 use crate::config::{Args, MetadataMap, PageMetadata, SiteMap};
-use crate::html::{convert_urls_to_anchors, format_html_page};
+use crate::html::{
+    convert_urls_to_anchors, format_html_page, generate_breadcrumb_html, generate_canonical_url,
+};
 use crate::io::{print_error, print_info, print_warning};
 use crate::markdown::{
     check_broken_links, normalize_markdown_content, prepare_content_for_parser,
@@ -298,6 +300,8 @@ fn build_final_html(
     nav_html: &str,
     content: &str,
     html_template: &str,
+    args: &Args,
+    metadata_map: &MetadataMap,
 ) -> String {
     let date_created = get_creation_date(path_source);
     let last_modified_time = get_last_modified_date(path_source);
@@ -313,6 +317,9 @@ fn build_final_html(
 
     let final_content = convert_urls_to_anchors(content);
 
+    let breadcrumb_html = generate_breadcrumb_html(path_rel, metadata_map, &args.base_url);
+    let canonical_url = generate_canonical_url(path_rel, &args.base_url);
+
     format_html_page(
         title,
         &rel_path_str,
@@ -321,6 +328,8 @@ fn build_final_html(
         nav_html,
         &final_content,
         html_template,
+        &breadcrumb_html,
+        &canonical_url,
     )
 }
 
@@ -397,6 +406,8 @@ pub fn markdown_to_html(
         &nav_html,
         &html_output_content,
         html_template,
+        args,
+        metadata_map,
     );
 
     let mut path_target_html = path_target.to_path_buf();

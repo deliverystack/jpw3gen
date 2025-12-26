@@ -60,6 +60,7 @@ pub struct Args {
     pub source: PathBuf,
     pub target: PathBuf,
     pub verbose: bool,
+    pub base_url: String,
 }
 
 pub type NavTree = BTreeMap<String, NavItem>;

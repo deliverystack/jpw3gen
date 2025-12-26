@@ -27,6 +27,14 @@ pub fn parse_args() -> Args {
                 .help("Specifies the target directory where files will be copied"),
         )
         .arg(
+            Arg::new("base_url")
+                .short('b')
+                .long("base-url")
+                .value_parser(clap::value_parser!(String))
+                .value_name("BASE_URL")
+                .help("Specifies the base URL for the site (e.g., https://example.com)"),
+        )
+        .arg(
             Arg::new("verbose")
                 .short('v')
                 .long("verbose")
@@ -49,9 +57,15 @@ pub fn parse_args() -> Args {
 
     let target_dir_str = matches.get_one::<String>("target").unwrap();
 
+    let base_url = matches
+        .get_one::<String>("base_url")
+        .cloned()
+        .unwrap_or_else(|| "https://jpw3.com".to_string());
+
     Args {
         source: PathBuf::from(source_dir_str),
         target: PathBuf::from(target_dir_str),
         verbose: *matches.get_one::<bool>("verbose").unwrap_or(&false),
+        base_url,
     }
 }

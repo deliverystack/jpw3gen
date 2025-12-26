@@ -7,6 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ title }}</title>
     <link rel="stylesheet" href="/styles.css"> 
+    <link rel="canonical" href="{{ canonical_url }}">
 
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-FJ84G1V290"></script>
     <script>
@@ -26,8 +27,9 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     <div id="page-layout"> 
         <header>
             <h1>{{ header_title }}</h1>
+            {{ breadcrumb_html }}
         </header>
-        
+
         <nav data-nosnippet>
             {{ nav_html }}
 

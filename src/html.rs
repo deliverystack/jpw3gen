@@ -1,5 +1,5 @@
 use regex::Regex;
-use std::{fs, io};
+use std::{fs, io, path::Path};
 
 use crate::config::{Args, MetadataMap};
 use crate::io::{print_info, print_warning};
@@ -13,6 +13,8 @@ pub fn format_html_page(
     nav_html: &str,
     content: &str,
     html_template: &str,
+    breadcrumb_html: &str,
+    canonical_url: &str,
 ) -> String {
     html_template
         .replace("{{ title }}", title)
@@ -22,6 +24,124 @@ pub fn format_html_page(
         .replace("{{ last_modified }}", last_modified_time)
         .replace("{{ nav_html }}", nav_html)
         .replace("{{ content }}", content)
+        .replace("{{ breadcrumb_html }}", breadcrumb_html)
+        .replace("{{ canonical_url }}", canonical_url)
+}
+
+pub fn generate_breadcrumb_html(
+    rel_path: &Path,
+    metadata_map: &MetadataMap,
+    _base_url: &str,
+) -> String {
+    let mut breadcrumbs = Vec::new();
+    let mut current_path = std::path::PathBuf::new();
+
+    // Add home link
+    breadcrumbs.push(format!(r#"<a href="/">Home</a>"#));
+
+    // Get path components
+    let components: Vec<_> = rel_path
+        .components()
+        .filter_map(|c| match c {
+            std::path::Component::Normal(os_str) => Some(os_str.to_string_lossy().to_string()),
+            _ => None,
+        })
+        .collect();
+
+    if components.is_empty() {
+        return r#"<nav class="breadcrumb"><a href="/">Home</a></nav>"#.to_string();
+    }
+
+    // Build breadcrumb for each component
+    for (i, component) in components.iter().enumerate() {
+        current_path.push(component);
+
+        let is_last = i == components.len() - 1;
+
+        if is_last && rel_path.file_name().is_some() {
+            // Last component is a file
+            let display_name = if let Some(stem) = rel_path.file_stem() {
+                let stem_str = stem.to_string_lossy();
+                if stem_str == "index" {
+                    // For index files, use the parent directory name or metadata
+                    let index_path = current_path.with_extension("md");
+                    metadata_map
+                        .get(&index_path)
+                        .and_then(|m| m.nav_title.clone().or_else(|| m.computed_title.clone()))
+                        .or_else(|| {
+                            current_path
+                                .parent()
+                                .and_then(|p| p.file_name())
+                                .map(|n| n.to_string_lossy().to_string())
+                        })
+                        .unwrap_or_else(|| stem_str.to_string())
+                } else {
+                    // For regular files, try nav_title first, then computed_title, then filename
+                    let file_path = current_path.with_extension("md");
+                    metadata_map
+                        .get(&file_path)
+                        .and_then(|m| m.nav_title.clone().or_else(|| m.computed_title.clone()))
+                        .unwrap_or_else(|| stem_str.to_string())
+                }
+            } else {
+                component.clone()
+            };
+
+            breadcrumbs.push(format!(
+                r#"<span class="breadcrumb-current">{}</span>"#,
+                display_name
+            ));
+        } else {
+            // Directory component
+            let index_path = current_path.join("index.md");
+            let display_name = metadata_map
+                .get(&index_path)
+                .and_then(|m| m.nav_title.clone().or_else(|| m.computed_title.clone()))
+                .unwrap_or_else(|| component.clone());
+
+            let href = if i == components.len() - 1 {
+                format!("/{}/", current_path.to_string_lossy())
+            } else {
+                format!("/{}/", current_path.to_string_lossy())
+            };
+
+            breadcrumbs.push(format!(r#"<a href="{}">{}</a>"#, href, display_name));
+        }
+    }
+
+    format!(
+        r#"<nav class="breadcrumb">{}</nav>"#,
+        breadcrumbs.join(" › ")
+    )
+}
+
+pub fn generate_canonical_url(rel_path: &Path, base_url: &str) -> String {
+    let mut url_path = rel_path.to_path_buf();
+
+    // Convert index.md to directory path
+    if rel_path.file_name().is_some_and(|n| n == "index.md") {
+        if rel_path.parent().is_some_and(|p| p.as_os_str().is_empty()) {
+            // Root index
+            return format!("{}/", base_url.trim_end_matches('/'));
+        } else {
+            url_path = rel_path.parent().unwrap().to_path_buf();
+            return format!(
+                "{}/{}/",
+                base_url.trim_end_matches('/'),
+                url_path.to_string_lossy()
+            );
+        }
+    }
+
+    // Convert .md to .html
+    url_path.set_extension("html");
+
+    let path_str = url_path.to_string_lossy();
+    if path_str.is_empty() {
+        format!("{}/", base_url.trim_end_matches('/'))
+    } else {
+        format!("{}/{}", base_url.trim_end_matches('/'), path_str)
+    }
 }
 
 pub fn convert_urls_to_anchors(html: &str) -> String {

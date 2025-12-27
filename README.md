@@ -1,7 +1,8 @@
 # Static Site Generator Technical Documentation
 
 ## Overview
-This project is a static site generator written in Rust that converts a directory structure of Markdown files into a navigable HTML website. It supports metadata extraction via JSON blocks, automatic navigation tree generation, and smart file synchronization.
+
+jpw3gen is a static site generator written in Rust that converts a directory structure of Markdown files into a navigable HTML website. It supports metadata extraction via JSON blocks, automatic navigation tree generation, and smart file synchronization. It consists of `/Cargo.toml` and the files in the `/src` directory. The `/bin/jpw3gen.sh` script builds and runs it.
 
 ---
 

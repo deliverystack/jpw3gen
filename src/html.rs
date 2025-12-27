@@ -36,8 +36,15 @@ pub fn generate_breadcrumb_html(
     let mut breadcrumbs = Vec::new();
     let mut current_path = std::path::PathBuf::new();
 
+    // Get home title from root index.md metadata
+    let root_index_path = std::path::PathBuf::from("index.md");
+    let home_title = metadata_map
+        .get(&root_index_path)
+        .and_then(|m| m.nav_title.clone().or_else(|| m.computed_title.clone()))
+        .unwrap_or_else(|| "Home".to_string());
+
     // Add home link
-    breadcrumbs.push(format!(r#"<a href="/">Home</a>"#));
+    breadcrumbs.push(format!(r#"<a href="/">{}</a>"#, home_title));
 
     // Get path components
     let components: Vec<_> = rel_path
@@ -49,42 +56,52 @@ pub fn generate_breadcrumb_html(
         .collect();
 
     if components.is_empty() {
-        return r#"<nav class="breadcrumb"><a href="/">Home</a></nav>"#.to_string();
+        return format!(
+            r#"<nav class="breadcrumb"><a href="/">{}</a></nav>"#,
+            home_title
+        );
     }
 
+    // Determine if this is an index.md file (represents a directory)
+    let is_index_file = rel_path.file_name().is_some_and(|n| n == "index.md");
+
+    // For index.md files, we skip the last component ("index.md") since it represents
+    // the directory itself, not a separate page
+    let components_to_process = if is_index_file {
+        components.len() - 1
+    } else {
+        components.len()
+    };
+
     // Build breadcrumb for each component
-    for (i, component) in components.iter().enumerate() {
+    for i in 0..components_to_process {
+        let component = &components[i];
         current_path.push(component);
 
-        let is_last = i == components.len() - 1;
+        let is_last = i == components_to_process - 1;
 
-        if is_last && rel_path.file_name().is_some() {
-            // Last component is a file
-            let display_name = if let Some(stem) = rel_path.file_stem() {
-                let stem_str = stem.to_string_lossy();
-                if stem_str == "index" {
-                    // For index files, use the parent directory name or metadata
-                    let index_path = current_path.with_extension("md");
-                    metadata_map
-                        .get(&index_path)
-                        .and_then(|m| m.nav_title.clone().or_else(|| m.computed_title.clone()))
-                        .or_else(|| {
-                            current_path
-                                .parent()
-                                .and_then(|p| p.file_name())
-                                .map(|n| n.to_string_lossy().to_string())
-                        })
-                        .unwrap_or_else(|| stem_str.to_string())
-                } else {
-                    // For regular files, try nav_title first, then computed_title, then filename
-                    let file_path = current_path.with_extension("md");
-                    metadata_map
-                        .get(&file_path)
-                        .and_then(|m| m.nav_title.clone().or_else(|| m.computed_title.clone()))
-                        .unwrap_or_else(|| stem_str.to_string())
-                }
+        if is_last {
+            // Last component is the current page - show as plain text
+            let display_name = if is_index_file {
+                // For index.md, get metadata from the directory's index.md
+                let index_path = current_path.join("index.md");
+                metadata_map
+                    .get(&index_path)
+                    .and_then(|m| m.nav_title.clone().or_else(|| m.computed_title.clone()))
+                    .unwrap_or_else(|| component.clone())
             } else {
-                component.clone()
+                // For regular files, get metadata from the file itself
+                let file_path = current_path.with_extension("md");
+                metadata_map
+                    .get(&file_path)
+                    .and_then(|m| m.nav_title.clone().or_else(|| m.computed_title.clone()))
+                    .unwrap_or_else(|| {
+                        rel_path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or(component)
+                            .to_string()
+                    })
             };
 
             breadcrumbs.push(format!(
@@ -92,18 +109,15 @@ pub fn generate_breadcrumb_html(
                 display_name
             ));
         } else {
-            // Directory component
+            // Intermediate directory component - show as link
+            // Get display name from the directory's index.md metadata
             let index_path = current_path.join("index.md");
             let display_name = metadata_map
                 .get(&index_path)
                 .and_then(|m| m.nav_title.clone().or_else(|| m.computed_title.clone()))
                 .unwrap_or_else(|| component.clone());
 
-            let href = if i == components.len() - 1 {
-                format!("/{}/", current_path.to_string_lossy())
-            } else {
-                format!("/{}/", current_path.to_string_lossy())
-            };
+            let href = format!("/{}/", current_path.to_string_lossy());
 
             breadcrumbs.push(format!(r#"<a href="{}">{}</a>"#, href, display_name));
         }

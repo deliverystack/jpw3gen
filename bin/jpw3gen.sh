@@ -2,7 +2,7 @@
 
 # Check for required tools
 MISSING_TOOLS=""
-for tool in cargo rustfmt cargo-clippy; do
+for tool in cargo rustfmt cargo-clippy xclip time; do
     if ! command -v $tool >/dev/null 2>&1; then
         MISSING_TOOLS="$MISSING_TOOLS $tool"
     fi
@@ -14,127 +14,126 @@ if [ -n "$MISSING_TOOLS" ]; then
 fi
 
 # Global variables
-CLIPBOARD=0
-DEPLOY=0
-VERBOSE=0
-TIME=0
 EXIT_CODE=1
 
-# Parse command line options
-while getopts "cdvt" opt; do
-  case $opt in
-    c)
-      CLIPBOARD=1
-      ;;
-    d)
-      DEPLOY=1
-      ;;
-    v)
-      VERBOSE=1
-      ;;
-    t)
-      TIME=1
-      ;;
-    \?)
-      echo "Invalid option: -$OPTARG" >&2
-      exit 1
-      ;;
-  esac
-done
-
-if [ "$CLIPBOARD" -eq 1 ] && [ "$DEPLOY" -eq 1 ]; then
-    echo "ERROR: Options -c and -d cannot be used together." >&2
-    exit 2
-fi
+# prompt_user function
+# Parameters:
+#   $1 - prompt message
+# Returns: 0 for yes, 1 for no
+prompt_user() {
+    local prompt="$1"
+    printf "%s " "$prompt" >&2
+    read -r answer
+    case "$answer" in
+        [Yy]|[Yy][Ee][Ss])
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
 
 # execute_command function
 # Parameters:
 #   $1 - command (mandatory)
-#   $2 - use_time (optional, default: 0)
-#   $3 - exit_on_error (optional, default: 1)
-#   $4 - capture_clipboard (optional, default: 0)
-#   $5 - show_command (optional, default: 0)
-#   $6 - additional_error_patterns (optional, default: "")
+#   $2 - check_errors (1 = check for errors, 0 = ignore errors)
+#   $3 - prompt_on_fail (1 = prompt on failure, 0 = auto-retry and exit)
 execute_command() {
     local cmd="$1"
-    local use_time="${2:-0}"
-    local exit_on_error="${3:-1}"
-    local capture_clipboard="${4:-0}"
-    local show_command="${5:-0}"
-    local additional_patterns="$6"
+    local check_errors="${2:-1}"
+    local prompt_on_fail="${3:-0}"
     
-    # Determine if we should show the command
-    local should_show=$show_command
+    # Always show the command
+    echo "===================================" >&2
+    echo "Executing: $cmd" >&2
+    echo "===================================" >&2
     
-    # Build the full command with time if requested
-    local full_cmd="$cmd"
-    if [ "$use_time" -eq 1 ]; then
-        full_cmd="time -p $cmd"
-    fi
-    
-    # Show command if requested
-    if [ "$should_show" -eq 1 ]; then
-        echo "+ $full_cmd" >&2
-    fi
-    
-    # Build error pattern
-    local error_pattern="error|warning"
-    if [ -n "$additional_patterns" ]; then
-        error_pattern="$error_pattern|$additional_patterns"
-    fi
-    
-    # Execute command
-    local result
-    local tmpfile=$(mktemp)
-    
-    if [ "$use_time" -eq 1 ]; then
-        # When timing, combine stdout and stderr
-        if [ "$capture_clipboard" -eq 1 ]; then
-            eval $full_cmd 2>&1 | tee "$tmpfile" | xclip -selection clipboard
-        else
-            eval $full_cmd 2>&1 | tee "$tmpfile"
-        fi
-    else
-        # Without timing, capture stderr separately for error checking
-        if [ "$capture_clipboard" -eq 1 ]; then
-            eval $full_cmd 3>&1 1>&2 2>&3 | tee "$tmpfile" | xclip -selection clipboard
-        else
-            eval $full_cmd 3>&1 1>&2 2>&3 | tee "$tmpfile"
-        fi
-    fi
-    
+    # Execute command with time - no capture on first run
+    eval "time -p $cmd"
     local cmd_exit_code=$?
-    result=$(cat "$tmpfile")
-    rm -f "$tmpfile"
     
-    # Sanitize output by removing known rustc patterns that contain error/warning keywords
-    # Use parameter expansion to avoid sed issues with special characters
-    local sanitized_result="$result"
-    sanitized_result="${sanitized_result//--warn=/--WARN=}"
-    sanitized_result="${sanitized_result//--WARN=/--XWARN=}"
-    sanitized_result="${sanitized_result//--allow=/--ALLOW=}"
-    sanitized_result="${sanitized_result//\'--warn=/\'--WARN=}"
-    sanitized_result="${sanitized_result//\'--WARN=/\'--XWARN=}"
-    sanitized_result="${sanitized_result//clippy::/CLIPPY::}"
-    sanitized_result="${sanitized_result//warning:/WARNING:}"
-    sanitized_result="${sanitized_result//WARN=/XWARN=}"
-    
-    # Check for errors
-    if [ "$cmd_exit_code" -ne 0 ] || echo "$sanitized_result" | grep -qiE "$error_pattern"; then
-        if [ "$exit_on_error" -eq 1 ]; then
-            if [ "$cmd_exit_code" -ne 0 ]; then
-                echo "Command failed with exit code $cmd_exit_code: $cmd" >&2
+    # Only check for errors if requested
+    if [ "$check_errors" -eq 1 ]; then
+        # Check for errors (non-zero exit code only)
+        if [ "$cmd_exit_code" -ne 0 ]; then
+            echo "" >&2
+            echo "!!! COMMAND FAILED !!!" >&2
+            echo "Failed command: $cmd" >&2
+            echo "Exit code: $cmd_exit_code" >&2
+            echo "" >&2
+            
+            if [ "$prompt_on_fail" -eq 1 ]; then
+                # Prompt for clipboard and continuation
+                local capture_clipboard=0
+                if prompt_user "Retry with clipboard capture? (y/n)"; then
+                    capture_clipboard=1
+                    echo "Retrying WITH clipboard capture..." >&2
+                else
+                    echo "Retrying WITHOUT clipboard capture..." >&2
+                fi
+                
+                # Retry the command
+                echo "===================================" >&2
+                echo "RETRY: $cmd" >&2
+                echo "===================================" >&2
+                
+                if [ "$capture_clipboard" -eq 1 ]; then
+                    eval "time -p $cmd" 2>&1 | xclip -selection clipboard
+                    local retry_exit_code=$?
+                    echo "Output captured to clipboard." >&2
+                else
+                    eval "time -p $cmd"
+                    local retry_exit_code=$?
+                fi
+                
+                # Check retry result
+                if [ "$retry_exit_code" -ne 0 ]; then
+                    echo "" >&2
+                    echo "!!! RETRY ALSO FAILED !!!" >&2
+                    echo "Failed command: $cmd" >&2
+                    echo "Retry exit code: $retry_exit_code" >&2
+                    echo "" >&2
+                else
+                    echo "" >&2
+                    echo "Retry succeeded!" >&2
+                    echo "" >&2
+                fi
+                
+                # Ask whether to continue
+                if ! prompt_user "Continue with script? (y/n)"; then
+                    echo "Script terminated by user." >&2
+                    exit $EXIT_CODE
+                fi
             else
-                echo "Command failed with error/warning in output: $cmd" >&2
-                echo "$result" | grep -iE "$error_pattern" >&2
+                # Auto-retry once with clipboard, then exit
+                echo "Retrying WITH clipboard capture..." >&2
+                echo "===================================" >&2
+                echo "RETRY: $cmd" >&2
+                echo "===================================" >&2
+                
+                eval "time -p $cmd" 2>&1 | xclip -selection clipboard
+                local retry_exit_code=$?
+                echo "Output captured to clipboard." >&2
+                
+                if [ "$retry_exit_code" -ne 0 ]; then
+                    echo "" >&2
+                    echo "!!! RETRY ALSO FAILED !!!" >&2
+                    echo "Script terminated." >&2
+                    exit $EXIT_CODE
+                else
+                    echo "" >&2
+                    echo "Retry succeeded!" >&2
+                    echo "" >&2
+                fi
             fi
-            echo "To reproduce: cd $PWD ; $cmd" >&2
-            cd - > /dev/null
-            exit $EXIT_CODE
+            
+            return 1
         fi
-        return 1
     fi
     
+    echo "Command succeeded." >&2
+    echo "" >&2
     return 0
 }
 
@@ -144,87 +143,102 @@ SOURCE=$HOME/git/jpw3
 TARGET=$HOME/git/vercel
 export CARGO_TARGET_DIR=/tmp/cargo
 export RUST_BACKTRACE=full
+
+echo "===================================" >&2
+echo "Starting build script" >&2
+echo "GEN: $GEN" >&2
+echo "SOURCE: $SOURCE" >&2
+echo "TARGET: $TARGET" >&2
+echo "CARGO_TARGET_DIR: $CARGO_TARGET_DIR" >&2
+echo "===================================" >&2
+echo "" >&2
+
 cd $GEN
 
 rm -rf "$TARGET"/*
 
-# Set up execution flags based on -v and -t
-USE_TIME=$TIME
-EXIT_ON_ERROR=1
-CAPTURE_TO_CLIPBOARD=0
-SHOW_COMMAND=$VERBOSE
-ADDITIONAL_ERROR_PATTERNS=""
-
-# cargo update
-execute_command "cargo update -v" "$USE_TIME" "$EXIT_ON_ERROR" "$CAPTURE_TO_CLIPBOARD" "$SHOW_COMMAND" "$ADDITIONAL_ERROR_PATTERNS"
+# cargo update - don't check for errors (warnings are ok)
+execute_command "cargo update -v" 0 0
 EXIT_CODE=$((EXIT_CODE + 1))
 
-# cargo check (first attempt)
-execute_command "cargo check -v --workspace --all-features" "$USE_TIME" "$EXIT_ON_ERROR" "$CAPTURE_TO_CLIPBOARD" "$SHOW_COMMAND" "$ADDITIONAL_ERROR_PATTERNS"
+# cargo check (first attempt) - check errors, no prompt
+execute_command "cargo check -v --workspace --all-features" 1 0
 check_result=$?
 EXIT_CODE=$((EXIT_CODE + 1))
 
 # cargo check retry if needed
 if [ $check_result -ne 0 ]; then
-    execute_command "cargo check -v --workspace --all-features" "$USE_TIME" "$EXIT_ON_ERROR" "$CAPTURE_TO_CLIPBOARD" "$SHOW_COMMAND" "$ADDITIONAL_ERROR_PATTERNS"
+    execute_command "cargo check -v --workspace --all-features" 1 0
     EXIT_CODE=$((EXIT_CODE + 1))
 fi
 
-# rustfmt
-execute_command "rustfmt -l -v ./src/*.rs" "$USE_TIME" "$EXIT_ON_ERROR" "$CAPTURE_TO_CLIPBOARD" "$SHOW_COMMAND" "$ADDITIONAL_ERROR_PATTERNS"
+# rustfmt - don't check for errors
+execute_command "rustfmt -l -v ./src/*.rs" 0 0
 EXIT_CODE=$((EXIT_CODE + 1))
 
 # List Rust files
+echo "===================================" >&2
+echo "Listing Rust files" >&2
+echo "===================================" >&2
 for f in $(find . -iname \*.rs -print); do
     ls -l $f
     wc -clw $f
 done
+echo "" >&2
 
-# cargo-clippy (don't exit on error)
-EXIT_ON_ERROR=0
-execute_command "cargo-clippy -v" "$USE_TIME" "$EXIT_ON_ERROR" "$CAPTURE_TO_CLIPBOARD" "$SHOW_COMMAND" "$ADDITIONAL_ERROR_PATTERNS"
+# cargo-clippy - don't check for errors (warnings are informational)
+execute_command "cargo-clippy -v" 0 0
 EXIT_CODE=$((EXIT_CODE + 1))
 
-# cargo build
-EXIT_ON_ERROR=1
-if [ "$CLIPBOARD" -eq 1 ]; then
-    CAPTURE_TO_CLIPBOARD=1
-fi
-execute_command "cargo build -v" "$USE_TIME" "$EXIT_ON_ERROR" "$CAPTURE_TO_CLIPBOARD" "$SHOW_COMMAND" "$ADDITIONAL_ERROR_PATTERNS"
+# cargo build - check errors WITH prompting
+execute_command "cargo build -v" 1 1
 EXIT_CODE=$((EXIT_CODE + 1))
 
-# Run generator
-execute_command "$CARGO_TARGET_DIR/debug/jpw3gen --source $SOURCE --target $TARGET" "$USE_TIME" "$EXIT_ON_ERROR" "$CAPTURE_TO_CLIPBOARD" "$SHOW_COMMAND" "$ADDITIONAL_ERROR_PATTERNS"
+# Run generator - check errors, no prompt
+execute_command "$CARGO_TARGET_DIR/debug/jpw3gen --source $SOURCE --target $TARGET" 1 0
 EXIT_CODE=$((EXIT_CODE + 1))
 
-# Copy files
-execute_command "cp $SOURCE/styles.css $SOURCE/favicon.ico $TARGET" "$USE_TIME" "$EXIT_ON_ERROR" "$CAPTURE_TO_CLIPBOARD" "$SHOW_COMMAND" "$ADDITIONAL_ERROR_PATTERNS"
+# Copy files - check errors, no prompt
+execute_command "cp $SOURCE/styles.css $SOURCE/favicon.ico $TARGET" 1 0
 EXIT_CODE=$((EXIT_CODE + 1))
 
-execute_command "cp $SOURCE/template.html $SOURCE/styles.css $GEN" "$USE_TIME" "$EXIT_ON_ERROR" "$CAPTURE_TO_CLIPBOARD" "$SHOW_COMMAND" "$ADDITIONAL_ERROR_PATTERNS"
+execute_command "cp $SOURCE/template.html $SOURCE/styles.css $GEN" 1 0
 EXIT_CODE=$((EXIT_CODE + 1))
 
-# Deploy/cleanup if requested
-if [ $DEPLOY -eq 1 ]; then
+# Ask about git deployment
+echo "" >&2
+if prompt_user "Run git deployment commands? (y/n)"; then
     cd $TARGET
-    execute_command "git checkout --orphan latest_branch" "$USE_TIME" "$EXIT_ON_ERROR" "$CAPTURE_TO_CLIPBOARD" "$SHOW_COMMAND" "$ADDITIONAL_ERROR_PATTERNS"
+    
+    execute_command "git checkout --orphan latest_branch" 1 0
     EXIT_CODE=$((EXIT_CODE + 1))
     
-    execute_command "git add -A" "$USE_TIME" "$EXIT_ON_ERROR" "$CAPTURE_TO_CLIPBOARD" "$SHOW_COMMAND" "$ADDITIONAL_ERROR_PATTERNS"
+    execute_command "git add -A" 1 0
     EXIT_CODE=$((EXIT_CODE + 1))
     
-    execute_command "git commit -am 'history of generated files truncated to save storage space'" "$USE_TIME" "$EXIT_ON_ERROR" "$CAPTURE_TO_CLIPBOARD" "$SHOW_COMMAND" "$ADDITIONAL_ERROR_PATTERNS"
+    execute_command "git commit -am 'history of generated files truncated to save storage space'" 1 0
     EXIT_CODE=$((EXIT_CODE + 1))
     
     # Check if main branch exists before trying to delete it
     if git show-ref --verify --quiet refs/heads/main; then
-        execute_command "git branch -D main" "$USE_TIME" "$EXIT_ON_ERROR" "$CAPTURE_TO_CLIPBOARD" "$SHOW_COMMAND" "$ADDITIONAL_ERROR_PATTERNS"
+        execute_command "git branch -D main" 1 0
         EXIT_CODE=$((EXIT_CODE + 1))
     fi
     
-    execute_command "git branch -m main" "$USE_TIME" "$EXIT_ON_ERROR" "$CAPTURE_TO_CLIPBOARD" "$SHOW_COMMAND" "$ADDITIONAL_ERROR_PATTERNS"
+    execute_command "git branch -m main" 1 0
     EXIT_CODE=$((EXIT_CODE + 1))
     
-    execute_command "git push -f origin main" "$USE_TIME" "$EXIT_ON_ERROR" "$CAPTURE_TO_CLIPBOARD" "$SHOW_COMMAND" "$ADDITIONAL_ERROR_PATTERNS"
+    execute_command "git push -f origin main" 1 0
     EXIT_CODE=$((EXIT_CODE + 1))
+    
+    echo "===================================" >&2
+    echo "Git deployment completed" >&2
+    echo "===================================" >&2
+else
+    echo "Skipping git deployment." >&2
 fi
+
+echo "" >&2
+echo "===================================" >&2
+echo "Build script completed successfully" >&2
+echo "===================================" >&2

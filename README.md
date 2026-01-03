@@ -8,17 +8,16 @@ jpw3gen is a static site generator written in Rust to convert a directory struct
 
 The jpw3gen Rust projecIt consists of `/Cargo.toml` and the files in the `/src` directory. 
 
-- [/Cargo.toml](../blob/main/Cargo.toml)
-
-- `/src/main.rs` - Starting point
-- `/src/args.rs` - Command line arguments (Clap)
-- `/src/config.rs` - Data structures and program configuration
-- `/src/processing.rs` - Directory traversal and markdown conversion control
-- `/src/html.rs` - HTML generation
-- `/src/io.rs` - File system interaction
-- `/src/markdown.rs` - Markdown processing including gnormalization and link rewriting
-- `/src/nav.rs` - Navigation generation
-- `/src/sitem_map.rs` - Source file metadata
+- [`/Cargo.toml`](../main/Cargo.toml)
+- [`/src/main.rs`](../main/src/main.rs) - Starting point
+- [`/src/args.rs`](../main/Cargo.toml) - Command line arguments (Clap)
+- [`/src/config.rs`](../main/Cargo.toml) - Data structures and program configuration
+- [`/src/processing.rs`](../main/Cargo.toml) - Directory traversal and markdown conversion control
+- [`/src/html.rs`](../main/Cargo.toml) - HTML generation
+- [`/src/io.rs`](../main/Cargo.toml) - File system interaction
+- [`/src/markdown.rs`](../main/Cargo.toml) - Markdown processing including gnormalization and link rewriting
+- [`/src/nav.rs`](../main/Cargo.toml) - Navigation generation
+- [`/src/sitem_map.rs`](../main/Cargo.toml) - Source file metadata
 
 The `/bin/jpw3gen.sh` script builds the jpw3gen rust binary and invokes it to convert a source markdown directory to a target HTML directory.
 

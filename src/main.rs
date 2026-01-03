@@ -67,7 +67,6 @@ fn main() -> std::io::Result<()> {
         ));
     }
 
-    // CHANGED: Remove title_cache building and passing
     process_directory(
         &args,
         &site_map,

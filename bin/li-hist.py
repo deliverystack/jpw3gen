@@ -112,7 +112,7 @@ def extract_id_prefix(url, length=ID_PREFIX_LENGTH):
         return full_id[:length]
     return None
 
-def parse_shares_robust(filename):
+def parse_shares(filename):
     """
     Parses Shares.csv line-by-line.
     """
@@ -177,7 +177,7 @@ def main():
     
     # 1. Parse Shares
     print("Reading Shares.csv...")
-    df_shares = parse_shares_robust('Shares.csv')
+    df_shares = parse_shares('Shares.csv')
     print(f"Parsed {len(df_shares)} posts from Shares.csv")
 
     # 2. Parse Comments

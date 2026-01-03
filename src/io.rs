@@ -45,7 +45,7 @@ pub fn read_template(source_dir: &Path, args: &Args) -> io::Result<String> {
     }
 }
 
-pub fn collect_all_dirs_robust(source_dir: &Path) -> io::Result<HashSet<PathBuf>> {
+pub fn collect_all_dirs(source_dir: &Path) -> io::Result<HashSet<PathBuf>> {
     let mut dirs = HashSet::new();
     let mut stack = vec![source_dir.to_path_buf()];
 

@@ -1,6 +1,6 @@
 use crate::config::{Args, MetadataMap, NavItem, NavTree, PageMetadata, SiteMap};
 use crate::html::{format_html_page, generate_breadcrumb_html, generate_canonical_url};
-use crate::io::{collect_all_dirs_robust, print_error, print_info};
+use crate::io::{collect_all_dirs, print_error, print_info};
 use crate::markdown::{process_markdown_events, rewrite_link_to_relative};
 use crate::processing::{get_creation_date, get_last_modified_date};
 use pulldown_cmark::Parser;
@@ -361,7 +361,7 @@ pub fn generate_all_index_files(
     metadata_map: &MetadataMap,
     html_template: &str,
 ) -> io::Result<()> {
-    let dirs_to_index = collect_all_dirs_robust(&args.source)?;
+    let dirs_to_index = collect_all_dirs(&args.source)?;
     let mut sorted_dirs: Vec<PathBuf> = dirs_to_index.into_iter().collect();
     sorted_dirs.sort();
 

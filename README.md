@@ -1,20 +1,127 @@
-# Static Site Generator Technical Documentation
+# jpw3gen Static Site Generator Technical Documentation
 
-## Overview
+## jpw3gen Overview
 
-jpw3gen is a static site generator written in Rust that converts a directory structure of Markdown files into a navigable HTML website. It supports metadata extraction via JSON blocks, automatic navigation tree generation, and smart file synchronization. It consists of `/Cargo.toml` and the files in the `/src` directory. The `/bin/jpw3gen.sh` script builds and runs it.
+jpw3gen is a static site generator written in Rust to convert a directory structure of markdown files into a navigable HTML website. jpw3gen supports metadata extraction via JSON blocks in the markdown, automatic navigation tree generation based on directory structure, and file system synchronization rather than replacement. 
 
----
+### jpw3gen Source Files
 
-## 1. Project Architecture
-The system is modularized into several components that handle specific stages of the build process:
+The jpw3gen Rust projecIt consists of `/Cargo.toml` and the files in the `/src` directory. 
 
-* **main.rs**: The orchestration layer that coordinates the execution flow.
-* **args.rs**: Manages CLI argument parsing using `clap` (source, target, verbose flags).
-* **config.rs**: Defines core data structures like `PageMetadata`, `NavItem`, and global configuration.
-* **site_map.rs**: Discovers and maps all source files to identify what needs processing.
-* **processing.rs**: Contains high-level logic for directory traversal and the Markdown-to-HTML conversion pipeline.
-* **markdown.rs**: Implements Markdown parsing, content normalization, and link rewriting.
+- [/Cargo.toml](../blob/main/Cargo.toml)
+
+- `/src/main.rs` - Starting point
+- `/src/args.rs` - Command line arguments (Clap)
+- `/src/config.rs` - Data structures and program configuration
+- `/src/processing.rs` - Directory traversal and markdown conversion control
+- `/src/html.rs` - HTML generation
+- `/src/io.rs` - File system interaction
+- `/src/markdown.rs` - Markdown processing including gnormalization and link rewriting
+- `/src/nav.rs` - Navigation generation
+- `/src/sitem_map.rs` - Source file metadata
+
+The `/bin/jpw3gen.sh` script builds the jpw3gen rust binary and invokes it to convert a source markdown directory to a target HTML directory.
+
+https://github.com/deliverystack/jpw3gen
+https://github.com/deliverystack/jpw3gen 
+
+### jpw3gen Process
+
+The jpw3gen.sh shell script invokes the jpw3gen Rust command line tool to create a target file system from a source file system. The Rust command:
+
+- Creates a directory in the target for each directory in the source.
+- Creates an .html file in the target for each .md file in the source.
+- Creates an index.html file in the target even if there is no .md file in the source.
+- Copies most other files from the target to the source.
+- Generates `/sitemap.xml`.
+
+The process ignores hidden files and directories (those that start with `.`). 
+
+The process only touches files for which content has changed.
+
+//TODO: The process ignores files named `template.html` and `favicon.ico` as well as any files ending `css`, `js`, `xml`, `html`, or `json`.
+
+//TODO: Navigation ignores files named  `template.html` and `favicon.ico` as well as any files ending `css`, `js`, `xml`, `html`, or `ico`.
+
+//TODO:         const EXCLUDED_FILE_NAMES: [&str; 2] = ["template.html", "favicon.ico"];
+//TODO: const EXCLUDED_EXTENSIONS: [&str; 5] = ["css", "js", "xml", "html", "json"]; 
+//TODO: const EXCLUDED_FILE_NAMES: [&str; 2] = ["template.html", "favicon.ico"];
+//TODO: const EXCLUDED_EXTENSIONS: [&str; 5] = ["css", "js", "xml", "html", "ico"];
+//TODO: managed by jpw3gen.sh script
+
+Conversion from markdown to markup subtitutes the following tokens in `/template.html` in the source:
+
+ Token                  | Value
+ -----------------------|------
+`{{ title }}`           | HTML page title.
+`{{ canonical_url }}`   | HTML page canonical URL.
+`{{ header_title }}`    | HTML header title.
+`{{ breadcrumb_html }}` | HTML breadcrumb.
+`{{ nav_html }}`        | Navigation HTML.
+`{{ content }}`         | Page content.
+`{{ source_path }}`     | Markdown file path.
+`{{ date_created }}`    | Markdown file date created.
+`{{ last_modified }}`   | Markdown file date modified.
+
+###//TODO: To determine the title:
+
+###//TODO: To determine the navigation title:
+
+###//TODO: Markdown JSON Format
+
+### Images, Links, and URLs 
+
+The JSON in each markup file can specify the navigation title for the each generated page including index.html for directories.
+
+The static site generation process attempts to report broken local page and image URLs.
+
+The static site generation process attempts to convert links such as ({title})[../page.md], replacing ({title}) or (../page.md) or () with the navigation title of the page. 
+
+Static site generation attempts to convert bare URLs to links. 
+
+### Markdown JSON Fragment Format
+
+Each markdown file can contain metadata in a JSON fragment at the end.
+
+```json
+{
+  "page_title": "Page Title",       // HTML page title.
+  "nav_title": "Short Title",       // Short title for navigation.
+  "avoid_generation": false,        // Don't generate an HTML file or process directory.
+  "exclude_from_nav": false,        // Exclude this file from the site nav.
+  "keep_json_in_content": false,    // Include this JSON in the HTML.
+  "sort_key": "text"                // For sorting the entry relative to its siblings.
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 * **nav.rs**: Constructs a recursive navigation tree and generates `index.html` files for directories.
 * **html.rs**: Handles final HTML formatting via templates and generates `sitemap.xml`.
 * **io.rs**: Provides utility functions for console output and file reading.

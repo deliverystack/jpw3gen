@@ -269,7 +269,38 @@ pub fn process_markdown_events<'a>(
                         events.append(&mut link_text_events);
                     }
                 } else {
-                    events.append(&mut link_text_events);
+                    // Check if link text is just the file path - if so, replace with title
+                    let link_text = link_text_events
+                        .iter()
+                        .filter_map(|e| {
+                            if let Event::Text(t) = e {
+                                Some(t.as_ref())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<String>();
+
+                    if let Some(original_dest) = &current_link_dest {
+                        if !is_external && link_text.trim() == original_dest.trim() {
+                            let dest_path = PathBuf::from(original_dest);
+                            if let Some(auto_title) = get_link_title(
+                                path_rel,
+                                &dest_path,
+                                metadata_map,
+                                site_map,
+                                args.verbose,
+                            ) {
+                                events.push(Event::Text(auto_title.into()));
+                            } else {
+                                events.append(&mut link_text_events);
+                            }
+                        } else {
+                            events.append(&mut link_text_events);
+                        }
+                    } else {
+                        events.append(&mut link_text_events);
+                    }
                 }
 
                 in_link = false;
@@ -404,9 +435,12 @@ fn get_link_title(
         ));
     }
 
-    let result = metadata_map
-        .get(&md_path)
-        .and_then(|meta| meta.computed_title.clone());
+    let result = metadata_map.get(&md_path).and_then(|meta| {
+        meta.nav_title
+            .clone()
+            .or_else(|| meta.page_title.clone())
+            .or_else(|| meta.computed_title.clone())
+    });
 
     if verbose {
         if let Some(ref title) = result {

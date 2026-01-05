@@ -1,54 +1,70 @@
-# jpw3gen Static Site Generator Technical Documentation
+## `jpw3gen`: Simple Markdown to Static HTML Site Generator
 
-## jpw3gen Overview
+`jpw3gen` is a static site generator written in Rust. `jpw3gen` repllicates a source directory structure containing markdown files as a navigable HTML website in a corresponding target directory structure.
 
-jpw3gen is a static site generator written in Rust to convert a directory structure of markdown files into a navigable HTML website. jpw3gen supports metadata extraction via JSON blocks in the markdown, automatic navigation tree generation based on directory structure, and file system synchronization rather than replacement. 
+This has been called the Cheapest Content Management System (CMS) implementation in history:
+
+- https://www.jpw3.com/articles/2025/December/static-site.html
+
+## Files, File Systems, and Decisions
+
+For all build and deployment processes, there are four relevent file systems:
+
+- Location of the source (markdown) file system (`/home/jw/git/jpw3/` in the examples).
+- Location of the target (HTML) file system (`/home/jw/tmp/jpw3/` in the examples).
+- Where to store the file system builder source code (`/tmp/git/jpw3gen/` in the examples). 
+- Where to build the file system builder binary (`/tmp/cargo/` in the examples).
+
+This process depends on two files in a source directory. You can copy these from this project.
+
+- `/template.html`: Template for HTML files.
+- `/styles.css` (technically optional): CSS referenced in HTML files.
 
 ### jpw3gen Source Files
 
-The jpw3gen Rust projecIt consists of `/Cargo.toml` and the files in the `/src` directory. 
+The jpw3gen Rust project (`/tmp/git/jpw3gen/`) consists of `/Cargo.toml` and the files in the `/src` directory. 
 
-- [`/Cargo.toml`](../main/Cargo.toml)
+- [`/Cargo.toml`](../main/Cargo.toml) - Project configuraiton
 - [`/src/main.rs`](../main/src/main.rs) - Starting point
-- [`/src/args.rs`](../main/Cargo.toml) - Command line arguments (Clap)
-- [`/src/config.rs`](../main/Cargo.toml) - Data structures and program configuration
-- [`/src/processing.rs`](../main/Cargo.toml) - Directory traversal and markdown conversion control
-- [`/src/html.rs`](../main/Cargo.toml) - HTML generation
-- [`/src/io.rs`](../main/Cargo.toml) - File system interaction
-- [`/src/markdown.rs`](../main/Cargo.toml) - Markdown processing including gnormalization and link rewriting
-- [`/src/nav.rs`](../main/Cargo.toml) - Navigation generation
+- [`/src/args.rs`](../main/src/args.rs) - Command line arguments (Clap)
+- [`/src/config.rs`](../main/src/config.rs) - Data structures and program configuration
+- [`/src/processing.rs`](../main/src/processing.rs) - Directory traversal and markdown conversion control
+- [`/src/html.rs`](../main/src/html.rs) - HTML generation
+- [`/src/io.rs`](../main/src/io.rs) - File system and console interaction
+- [`/src/markdown.rs`](../main/src/markdown.rs) - Markdown processing including gnormalization and link rewriting
+- [`/src/nav.rs`](../main/Cargo.toml) - Navigation generation including `/sitemap.xml`
 - [`/src/sitem_map.rs`](../main/Cargo.toml) - Source file metadata
 
-The `/bin/jpw3gen.sh` script builds the jpw3gen rust binary and invokes it to convert a source markdown directory to a target HTML directory.
+The `jpw3gen.sh` script builds the jpw3gen rust binary and invokes it to convert a source markdown directory to a target HTML directory.
 
-https://github.com/deliverystack/jpw3gen
-https://github.com/deliverystack/jpw3gen 
+- [`/bin/jpw3gen.sh`](../main/bin/jpw3gen.sh)
 
 ### jpw3gen Process
 
-The jpw3gen.sh shell script invokes the jpw3gen Rust command line tool to create a target file system from a source file system. The Rust command:
+The jpw3gen.sh shell script builds and invokes the jpw3gen Rust command line tool to synchronize a target file system from a source file system. The Rust command:
 
 - Creates a directory in the target for each directory in the source.
-- Creates an .html file in the target for each .md file in the source.
-- Creates an index.html file in the target even if there is no .md file in the source.
+- Extracts optional JSON metadata from source markdown files indlucing `index.md` for directories.
+- Creates an `.html` file in the target for each `.md` file in the source.
+- Removes non-essential control characters, standardizes line endings, replaces special characters, and formats `TODO` markers.
+- Attempts to convert links such as `[{title}](../page.md)`, replacing [{title}] or [../page.md] or [] with the navigation title of page.md. 
+- Converts bare URLs in source markdown to HTML anchors (links).
+- Reports links to local markdown files and images that do not exist.
+- Creates an `index.html` file in each target directory even if there is no `index.md` file in the source.
+- Links to directories are automatically pointed to that directory's `index.html`.
+- In URLs, `.md` extensions are converted to `.html`.
+- Embeds HTML navigation based on directory structure in each page.
 - Copies most other files from the target to the source.
 - Generates `/sitemap.xml`.
+- Only overwrites files if binary content has changed.
 
-The process ignores hidden files and directories (those that start with `.`). 
+> **NOTE**: The `jpw3gen.sh` that builds and invokes the Rust binary before optionaly invoking git may delete files before invoking the `jpw3gen` Rust command to generate files.
 
-The process only touches files for which content has changed.
+The resulting static HTML can contain JavaScript for client-side logic that post to other servers. 
 
-//TODO: The process ignores files named `template.html` and `favicon.ico` as well as any files ending `css`, `js`, `xml`, `html`, or `json`.
+The process may ignore hidden files and directories (those that start with `.`), files named `template.html` or `favicon.ico`, and any files ending `css`, `js`, `xml`, `html`, `json`, and/or `ico` as hard-coded into the `EXCLUDED_EXTENSIONS` and `EXCLUDED_FILE_NAMES` variables that appear twice for two different purposes. The `jpw3gen.sh` script may manage some of these files explicitly.
 
-//TODO: Navigation ignores files named  `template.html` and `favicon.ico` as well as any files ending `css`, `js`, `xml`, `html`, or `ico`.
-
-//TODO:         const EXCLUDED_FILE_NAMES: [&str; 2] = ["template.html", "favicon.ico"];
-//TODO: const EXCLUDED_EXTENSIONS: [&str; 5] = ["css", "js", "xml", "html", "json"]; 
-//TODO: const EXCLUDED_FILE_NAMES: [&str; 2] = ["template.html", "favicon.ico"];
-//TODO: const EXCLUDED_EXTENSIONS: [&str; 5] = ["css", "js", "xml", "html", "ico"];
-//TODO: managed by jpw3gen.sh script
-
-Conversion from markdown to markup subtitutes the following tokens in `/template.html` in the source:
+To generate markup files, the jpw3gen rust static site generation procecess subtitutes the following tokens from the `/template.html` file in the source directory with calcluated values that may involve a markdown file in the source directory:
 
  Token                  | Value
  -----------------------|------
@@ -62,21 +78,7 @@ Conversion from markdown to markup subtitutes the following tokens in `/template
 `{{ date_created }}`    | Markdown file date created.
 `{{ last_modified }}`   | Markdown file date modified.
 
-###//TODO: To determine the title:
-
-###//TODO: To determine the navigation title:
-
-###//TODO: Markdown JSON Format
-
-### Images, Links, and URLs 
-
-The JSON in each markup file can specify the navigation title for the each generated page including index.html for directories.
-
-The static site generation process attempts to report broken local page and image URLs.
-
-The static site generation process attempts to convert links such as ({title})[../page.md], replacing ({title}) or (../page.md) or () with the navigation title of the page. 
-
-Static site generation attempts to convert bare URLs to links. 
+The last steps in the `jpw3gen.sh` optionally truncate `git` history and check-in the generated HTML, which can trigger automatic deploymnent such as with Vercel.
 
 ### Markdown JSON Fragment Format
 
@@ -93,192 +95,19 @@ Each markdown file can contain metadata in a JSON fragment at the end.
 }
 ```
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-* **nav.rs**: Constructs a recursive navigation tree and generates `index.html` files for directories.
-* **html.rs**: Handles final HTML formatting via templates and generates `sitemap.xml`.
-* **io.rs**: Provides utility functions for console output and file reading.
-
----
-
-## 2. Data Structures
-The system relies on several key structures for state management:
-
-### PageMetadata
-Extracted from JSON code blocks at the end of Markdown files.
-* `page_title`: Explicit title for the `<title>` tag.
-* `nav_title`: Text used in the navigation menu.
-* `avoid_generation`: If true, skips generating an HTML file for this source.
-* `sort_key`: Used to override alphabetical sorting in navigation.
-* `computed_title`: Fallback title extracted from the first H1 heading.
-
-### NavItem
-A recursive enum used to build the site’s hierarchy:
-* `File`: Represents a single page with its relative path and current status.
-* `Directory`: Represents a folder containing a `BTreeMap` of child `NavItems`.
-
----
-
-## 3. Functional Call Tree
-The following tree represents the execution flow from program start:
-
-* `main()`
-    * `parse_args()`: Validates directories and verbosity.
-    * `read_template()`: Loads the HTML skeleton (`template.html`).
-    * `build_site_map()`: Recursively catalogs all source files.
-    * `load_all_metadata_from_files()`: Scans all `.md` files to build a global metadata map.
-    * `process_directory()`: Primary recursive loop.
-        * `markdown_to_html()`: Processes `.md` files into HTML.
-            * `normalize_markdown_content()`: Cleans up control characters and formatting.
-            * `check_broken_links()`: Validates internal links via regex.
-            * `process_markdown_events()`: Rewrites links and handles auto-titling.
-            * `generate_navigation_html()`: Builds the site-wide sidebar.
-        * `smart_copy_file()`: Copies assets only if the content has changed.
-    * `generate_all_index_files()`: Ensures every folder has an index page.
-    * `generate_sitemap_xml()`: Produces the final SEO sitemap.
-
-
-
----
-
-## 4. Key Logic & Processing
-
-### Markdown Normalization
-The `normalize_markdown_content` function performs several cleanup tasks:
-* Removes non-essential control characters.
-* Standardizes line endings and replaces special Unicode characters (like smart quotes) with standard ASCII equivalents.
-* Converts source code comments (lines starting with `//`) into standard text.
-* Applies specific formatting to `TODO` markers.
-
-### Link Rewriting
-Links within Markdown files are dynamically transformed:
-* `.md` extensions are converted to `.html`.
-* Absolute site paths (starting with `/`) are resolved relative to the current file.
-* Links to directories are automatically pointed to that directory's `index.html`.
-* If a link contains `{title}`, it is replaced with the computed title of the target page.
-
-### Navigation Tree Generation
-The navigation is built by iterating through the `SiteMap`. It respects `exclude_from_nav` flags and uses `sort_key` for ordering. Branches are automatically expanded if they contain the currently active page or if the branch is a parent of the active page.
-
----
-
-## 5. Deployment and Outputs
-* **Target Directory**: The final site is mirrored in the specified target path.
-* **Sitemap**: A `sitemap.xml` is generated in the root, including `lastmod`, `changefreq`, and `priority` based on file metadata.
-* **Index Files**: For directories missing an `index.md`, a default index is created listing available content.
-
-
-
-
-
-# jpw3gen - Generate Static HTML Site from Markdown File System
-
-This program iterates all of the files and subdirectories in a source directory, replicating them to a target directory, converting markdown (`.md`) files to HTML files, and generating an index.html file in each subdirectory.
-
-- http://localhost:8000/articles/2025/December/static-site.html
-
-## Manual Process Before Use
-
-This process depends on two files in the source directory. You can copy these from this project.
-
-- `/template.html`: Template for HTML files.
-- `/styles.css` (technically optional): CSS referenced in HTML files.
-
-Make some decisions:
-
-- Location of the source file system is (`/home/jw/git/jpw3/` in the examples).
-- Location of the target file system (`/home/jw/tmp/jpw3` in the examples).
-- Where to store the file system builder source code (`/tmp/git/jpw3gen/` in the examples). 
-- Where to build the file system builder binary (`/tmp/cargo/` in the examples)
-
-## Building the File System Generator
-
-You may want to see:
-
-- https://github.com/deliverystack/jpw3gen/blob/main/jwbnr.sh
-- https://deliverystack.net/2025/12/10/fedora-linux-simple-static-web-server-startup
-
-To build the program:
-
-```
-export CARGO_TARGET_DIR=/tmp/cargo      # build to the working directory
-mkdir /tmp/git                          # base directory for project (source code)
-cd /tmp/git
-gh repo clone deliverystack/jpw3gen     # get the code
-cd jpw3gen           
-cargo build                             # build the binary
-```
-
-## Generating the File System
-
-Generate the output files:
-
-```
-rm -r /tmp/jw                           # (remove existing target; optional)
-/tmp/cargo/debug/jpw3gen --source ~/git/jpw3 --target /tmp/jw 
-```
-
 ## Run and Access a Web Server
 
-Run the web server:
+Once you have built the target directory, you can run a web server and access it from a browser:
 
 ```
-python3 -m http.server 8000 --directory /tmp/jw
+python3 -m http.server 8000 --directory /home/jw/tmp/jpw3
 ```
 
 Browse to:
 
 - http://localhost:8000
 
-## Features
+You can configure this web server to start automatically:
 
-- Replicate directory structure.
-- Convert .md files in source to HTML files in target.
-- Generate index.html in each directory (use index.md if it exists).
-- Rewrite links to local markdown files to link to corresponding HTML files.
-- Report links to local markdown files that do not exist.
-- Use the first # or ## markdown heading in the .md file as the HTML page title, or the file path otherwise.
-- Copy every other file (except maybe styles.css and template.html).
-- Only overwrite files if binary content has changed.
-- In each HTML file, generate navigation based on directory structure.
+- https://www.jpw3.com/articles/2025/December/web-server.html
 
-## Outstanding Issues
-
-- Documentation including features
-- Refactoring, cleanup, and comment code
-- Comment rust code.
-- Document features (possibly using ChatGPT conversation?).
-- Report links to deliverystack for update.
-- Generate robots.txt
-- --debug N for verbosity level
-- navigation sorting seems to not work, for example articles/2025/May
-- Storing the entire nav in every HTML file requires too much generation and makes the files to big and slow.
-- Needs refactoring. Config.rs contains too much code, as does processing; some needs a new HTML library or something.
-- Site search is not working well
-- Clippy reports some issues; exit is commented in jpw3gen.sh
